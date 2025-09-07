@@ -31,7 +31,7 @@ Sweeps all open PRs to check version consistency across the repository.
 ```
 
 ### 3. generate-pr
-Automatically generates PRs with packed dependencies from source repositories, with commit history and rollback protection.
+Automatically generates PRs with packed dependencies from source repositories, with complete build and pack workflow.
 
 **Usage:**
 ```yaml
@@ -42,15 +42,21 @@ Automatically generates PRs with packed dependencies from source repositories, w
     allow-rollback: false
     mode: 'test'  # or 'release'
     file-path: '.ui-sha'
-    pack-command: 'pnpm pack'
-    install-command: 'pnpm add'
+    pack-destination: './packs'
+    package-name: '@temporalio/ui'
+    pre-pack-commands: 'pnpm svelte-kit sync'
+    package-command: 'pnpm package'
+    remove-prepare-script: true
+    ignore-scripts: true
 ```
 
 **Key Features:**
+- Downloads and builds dependencies from source
 - Validates target SHA against last merged version
 - Prevents accidental rollbacks (configurable)
 - Generates commit changelog automatically
-- Packs dependency directly from source repository
+- Removes prepare scripts and handles install flags
+- Renames packed files with SHA for traceability
 - Creates draft PRs with detailed commit history
 
 ### 4. auto-delete
@@ -78,8 +84,16 @@ The repository includes complete workflow files that combine these actions:
 | `mode` | PR mode (test or release) | No | `test` |
 | `repository` | Source repository (owner/name) | Yes | - |
 | `file-path` | Path to version file | No | `.ui-sha` |
-| `pack-command` | Command to pack dependency | No | `pnpm pack` |
-| `install-command` | Command to install packed file | No | `pnpm add` |
+| `pack-destination` | Directory for packed files | No | `./packs` |
+| `package-name` | Name of package being packed | No | - |
+| `pre-pack-commands` | Commands to run before packing | No | - |
+| `package-command` | Build command before packing | No | - |
+| `remove-prepare-script` | Remove prepare script from package.json | No | `true` |
+| `ignore-scripts` | Use --ignore-scripts when installing | No | `true` |
+| `pr-title-template` | Template for PR title | No | `{mode} {repository}@{short_sha}` |
+| `pr-body-template` | Template for PR body | No | See action.yml |
+| `labels` | Labels to add to PR | No | `{mode}-ui` |
+| `draft` | Create as draft PR | No | `always-true` |
 
 ### check-ui-pack-version.yml
 Checks UI pack version on PRs and can be called from other workflows:
@@ -125,7 +139,7 @@ jobs:
 ```
 
 ### generate-ui-pr.yml
-Creates automated update PRs with packed dependencies:
+Creates automated update PRs with fully packed dependencies from source:
 
 ```yaml
 name: Generate temporalio/ui PR
@@ -188,12 +202,31 @@ jobs:
 Each action supports extensive configuration through inputs. Common configurations include:
 
 - **Version file paths**: Customize which files to track (`.ui-sha`, `package.json`, etc.)
-- **Update commands**: Specify how to update dependencies (`pnpm run update-ui`, `npm update`, etc.)
+- **Build workflow**: Configure pre-pack commands, package commands, and pack destinations
+- **Package handling**: Remove prepare scripts, ignore install scripts, rename with SHA
 - **PR labels**: Control which labels are added to automated PRs
 - **Cleanup policies**: Configure when to close stale PRs (days old, labels to exclude, etc.)
 - **SHA validation**: Prevent accidental rollbacks with `allow-rollback` flag
-- **Pack commands**: Configure how to pack dependencies from source (`pnpm pack`, `npm pack`, etc.)
 - **PR modes**: Differentiate between test and release PRs with labels and naming
+
+### Example: SvelteKit Project
+```yaml
+uses: your-org/pack-dependency-actions/generate-pr@v1
+with:
+  repository: 'your-org/sveltekit-app'
+  pre-pack-commands: 'pnpm svelte-kit sync'
+  package-command: 'pnpm package'
+  package-name: '@your-org/ui'
+```
+
+### Example: React Project
+```yaml
+uses: your-org/pack-dependency-actions/generate-pr@v1
+with:
+  repository: 'your-org/react-app'
+  package-command: 'pnpm build'
+  package-name: '@your-org/components'
+```
 
 ## Benefits
 
