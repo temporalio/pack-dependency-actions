@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${{ github.ref_name }}"
+          fi
+          
+          # Ensure version starts with 'v'
+          if [[ ! "$VERSION" =~ ^v ]]; then
+            VERSION="v$VERSION"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
+          
+          # Extract major version for tagging
+          MAJOR_VERSION=$(echo "$VERSION" | grep -oE '^v[0-9]+')
+          echo "major_version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          release_name: Release ${{ steps.version.outputs.version }}
+          body: |
+            ## Pack Dependency Actions ${{ steps.version.outputs.version }}
+            
+            ### 📦 Included Actions
+            
+            - **check-version**: Version comparison with PR commenting
+            - **version-sweep**: Batch PR version checking
+            - **generate-pr**: Automated PR generation with packed dependencies
+            - **auto-delete**: Stale PR cleanup
+            
+            ### 📋 Usage
+            
+            ```yaml
+            # Check version in PR
+            uses: ${{ github.repository }}/check-version@${{ steps.version.outputs.version }}
+            
+            # Sweep all PRs
+            uses: ${{ github.repository }}/version-sweep@${{ steps.version.outputs.version }}
+            
+            # Generate update PR
+            uses: ${{ github.repository }}/generate-pr@${{ steps.version.outputs.version }}
+            
+            # Auto-delete stale PRs
+            uses: ${{ github.repository }}/auto-delete@${{ steps.version.outputs.version }}
+            ```
+            
+            ### 🔄 What's Changed
+            
+            See [full changelog](https://github.com/${{ github.repository }}/compare/v1.0.0...${{ steps.version.outputs.version }})
+          draft: false
+          prerelease: false
+
+      - name: Update major version tag
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email github-actions[bot]@users.noreply.github.com
+          
+          # Delete existing major version tag if it exists
+          git tag -d ${{ steps.version.outputs.major_version }} 2>/dev/null || true
+          git push origin :refs/tags/${{ steps.version.outputs.major_version }} 2>/dev/null || true
+          
+          # Create new major version tag
+          git tag -a ${{ steps.version.outputs.major_version }} -m "Release ${{ steps.version.outputs.version }}"
+          git push origin ${{ steps.version.outputs.major_version }}
+          
+          echo "✅ Updated ${{ steps.version.outputs.major_version }} tag to point to ${{ steps.version.outputs.version }}"
+
+  update-examples:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Update README examples
+        run: |
+          VERSION="${{ github.ref_name }}"
+          MAJOR_VERSION=$(echo "$VERSION" | grep -oE '^v[0-9]+')
+          
+          # Update version references in README
+          sed -i "s|@v[0-9]\+|@${MAJOR_VERSION}|g" README.md
+          
+          # Check if changes were made
+          if git diff --quiet; then
+            echo "No changes needed in README"
+          else
+            git config user.name github-actions[bot]
+            git config user.email github-actions[bot]@users.noreply.github.com
+            git add README.md
+            git commit -m "docs: update README examples to ${MAJOR_VERSION}"
+            git push
+          fi

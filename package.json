@@ -1,0 +1,22 @@
+{
+  "name": "pack-dependency-actions",
+  "version": "1.0.0",
+  "description": "GitHub Actions for managing dependency version consistency across PRs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/pack-dependency-actions.git"
+  },
+  "keywords": [
+    "github-actions",
+    "ci-cd",
+    "dependencies",
+    "monorepo",
+    "automation"
+  ],
+  "author": "Your Organization",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=16"
+  }
+}

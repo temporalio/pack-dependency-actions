@@ -1,0 +1,85 @@
+name: Test Actions
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Create test file
+        run: echo "test-sha-12345" > .test-sha
+      
+      - name: Test check-version action
+        id: test
+        uses: ./check-version
+        with:
+          file-path: '.test-sha'
+          comment-title: 'Test Version Check'
+      
+      - name: Verify outputs
+        run: |
+          echo "Mismatch detected: ${{ steps.test.outputs.mismatch }}"
+          echo "Main version: ${{ steps.test.outputs.main-version }}"
+          echo "PR version: ${{ steps.test.outputs.pr-version }}"
+
+  test-version-sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Test version-sweep action
+        id: test
+        uses: ./version-sweep
+        with:
+          file-path: '.test-sha'
+          base-branch: 'main'
+      
+      - name: Verify outputs
+        run: |
+          echo "PR count: ${{ steps.test.outputs.pr-count }}"
+          echo "PR list: ${{ steps.test.outputs.pr-list }}"
+
+  test-auto-delete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Test auto-delete action (dry run)
+        id: test
+        uses: ./auto-delete
+        with:
+          days-old: 7
+          dry-run: true
+          labels-filter: 'test-label'
+      
+      - name: Verify outputs
+        run: |
+          echo "Closed count: ${{ steps.test.outputs.closed-count }}"
+          echo "Closed PRs: ${{ steps.test.outputs.closed-prs }}"
+
+  validate-workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Validate workflow files
+        run: |
+          for workflow in .github/workflows/*.yml *.yml; do
+            if [ -f "$workflow" ]; then
+              echo "Validating $workflow..."
+              # Basic YAML validation
+              python3 -c "import yaml; yaml.safe_load(open('$workflow'))"
+            fi
+          done
+          echo "✅ All workflow files are valid YAML"
