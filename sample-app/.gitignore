@@ -1,7 +1,0 @@
-node_modules/
-packs/
-*.tgz
-.env
-.env.local
-dist/
-build/
