@@ -1,0 +1,33 @@
+name: Trigger Sample App on Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  trigger-sample-app:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get latest UI SHA
+        id: get-sha
+        run: |
+          UI_SHA=$(curl -s https://api.github.com/repos/temporalio/ui/commits/main | jq -r .sha)
+          echo "ui_sha=$UI_SHA" >> $GITHUB_OUTPUT
+          echo "Latest UI SHA: $UI_SHA"
+      
+      - name: Trigger sample app workflow
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          event-type: actions-released
+          client-payload: '{"ui_sha": "${{ steps.get-sha.outputs.ui_sha }}", "release_tag": "${{ github.event.release.tag_name }}"}'
+      
+      - name: Post release notification
+        run: |
+          echo "✅ Triggered sample app to generate UI update PR"
+          echo "Release: ${{ github.event.release.tag_name }}"
+          echo "UI SHA: ${{ steps.get-sha.outputs.ui_sha }}"

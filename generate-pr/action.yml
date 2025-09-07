@@ -22,14 +22,30 @@ inputs:
   repository:
     description: 'Source repository (owner/name)'
     required: true
-  pack-command:
-    description: 'Command to pack the dependency'
+  pack-destination:
+    description: 'Directory for packed files'
     required: false
-    default: 'pnpm pack'
-  install-command:
-    description: 'Command to install the packed dependency'
+    default: './packs'
+  pre-pack-commands:
+    description: 'Commands to run before packing (e.g., svelte-kit sync)'
     required: false
-    default: 'pnpm add'
+    default: ''
+  package-command:
+    description: 'Command to build the package before packing'
+    required: false
+    default: ''
+  remove-prepare-script:
+    description: 'Remove prepare script from package.json'
+    required: false
+    default: 'true'
+  ignore-scripts:
+    description: 'Use --ignore-scripts when installing'
+    required: false
+    default: 'true'
+  package-name:
+    description: 'Name of the package being packed (for finding .tgz file)'
+    required: false
+    default: ''
   pr-title-template:
     description: 'Template for PR title'
     required: false
@@ -39,7 +55,7 @@ inputs:
     required: false
     default: |
       This PR uses a local `.tgz` package built from `{repository}@{resolved_sha}`.
-      The `.tgz` was created with `{pack_command}` and installed directly. Use this pr to confirm the commit is functional.
+      The `.tgz` was created with `pnpm pack` and installed directly. Use this pr to confirm the commit is functional.
       
       ### 🧾 Changes in [`{repository}`](https://github.com/{repository})
       **Commit range:** [`{last_sha}...{resolved_sha}`](https://github.com/{repository}/compare/{last_sha}...{resolved_sha})
@@ -166,38 +182,103 @@ runs:
       run: |
         echo "${{ steps.validate-sha.outputs.resolved-sha }}" > ${{ inputs.file-path }}
 
-    - name: Pack and install dependency
-      if: steps.validate-sha.outputs.needs-update == 'true' && inputs.pack-command != ''
+    - name: Download and pack dependency
+      if: steps.validate-sha.outputs.needs-update == 'true'
       shell: bash
       run: |
         REPO="${{ inputs.repository }}"
         SHA="${{ steps.validate-sha.outputs.resolved-sha }}"
+        PACK_DIR="${{ inputs.pack-destination }}"
+        PACKAGE_NAME="${{ inputs.package-name }}"
         
-        # Clone and pack
-        TEMP_DIR=$(mktemp -d)
-        cd $TEMP_DIR
-        gh repo clone $REPO . -- --depth 1 --single-branch
-        git checkout $SHA
+        # Reset packs directory
+        rm -rf "$PACK_DIR"
+        mkdir -p "$PACK_DIR"
         
-        # Run pack command
-        ${{ inputs.pack-command }}
+        # Download source as tarball
+        echo "Downloading $REPO@$SHA..."
+        curl -L "https://github.com/$REPO/archive/$SHA.tar.gz" -o source.tar.gz
+        tar -xzf source.tar.gz
         
-        # Find the packed file
-        PACKED_FILE=$(ls *.tgz 2>/dev/null | head -n 1)
-        if [ -z "$PACKED_FILE" ]; then
-          echo "No .tgz file found after packing"
-          exit 1
+        # Find extracted directory (GitHub creates it as repo-name-sha)
+        REPO_NAME=$(echo "$REPO" | cut -d'/' -f2)
+        SOURCE_DIR="${REPO_NAME}-${SHA}"
+        
+        # Remove dependency from parent package.json if package name is provided
+        if [ -n "$PACKAGE_NAME" ] && [ -f "package.json" ]; then
+          echo "Removing $PACKAGE_NAME from parent package.json..."
+          cat package.json | jq "del(.dependencies[\"$PACKAGE_NAME\"])" > package.json.tmp
+          mv package.json.tmp package.json
         fi
         
-        # Move to workspace and install
-        mv $PACKED_FILE $GITHUB_WORKSPACE/
-        cd $GITHUB_WORKSPACE
+        cd "$SOURCE_DIR"
+        
+        # Remove prepare script if requested
+        if [ "${{ inputs.remove-prepare-script }}" = "true" ] && [ -f "package.json" ]; then
+          echo "Removing prepare script..."
+          cat package.json | jq 'del(.scripts.prepare)' > package.json.tmp
+          mv package.json.tmp package.json
+        fi
+        
+        # Install dependencies
+        INSTALL_FLAGS=""
+        if [ "${{ inputs.ignore-scripts }}" = "true" ]; then
+          INSTALL_FLAGS="--ignore-scripts"
+        fi
+        echo "Installing dependencies..."
+        pnpm install $INSTALL_FLAGS
+        
+        # Run pre-pack commands if provided
+        if [ -n "${{ inputs.pre-pack-commands }}" ]; then
+          echo "Running pre-pack commands..."
+          eval "${{ inputs.pre-pack-commands }}"
+        fi
+        
+        # Run package command if provided
+        if [ -n "${{ inputs.package-command }}" ]; then
+          echo "Running package command..."
+          eval "${{ inputs.package-command }}"
+        fi
+        
+        # Pack the package
+        echo "Packing..."
+        pnpm pack --pack-destination "../$PACK_DIR"
+        
+        cd ..
+        
+        # Rename packed file to include SHA
+        if [ -n "$PACKAGE_NAME" ]; then
+          # Find the packed file with the package name pattern
+          PACKED_FILE=$(ls "$PACK_DIR/${PACKAGE_NAME}"*.tgz 2>/dev/null | head -n 1)
+          if [ -n "$PACKED_FILE" ]; then
+            # Extract just the filename
+            FILENAME=$(basename "$PACKED_FILE")
+            # Remove version and .tgz, then add SHA
+            BASE_NAME=$(echo "$FILENAME" | sed 's/-[0-9].*\.tgz$//')
+            mv "$PACKED_FILE" "$PACK_DIR/${BASE_NAME}-${SHA}.tgz"
+            FINAL_PACKAGE="$PACK_DIR/${BASE_NAME}-${SHA}.tgz"
+          fi
+        else
+          # Generic rename for any .tgz file
+          PACKED_FILE=$(ls "$PACK_DIR"/*.tgz 2>/dev/null | head -n 1)
+          if [ -n "$PACKED_FILE" ]; then
+            FILENAME=$(basename "$PACKED_FILE" .tgz)
+            mv "$PACKED_FILE" "$PACK_DIR/${FILENAME}-${SHA}.tgz"
+            FINAL_PACKAGE="$PACK_DIR/${FILENAME}-${SHA}.tgz"
+          fi
+        fi
+        
+        # Clean up source directory
+        rm -rf "$SOURCE_DIR" source.tar.gz
         
         # Install the packed dependency
-        ${{ inputs.install-command }} ./$PACKED_FILE
-        
-        # Clean up
-        rm -rf $TEMP_DIR
+        if [ -n "$FINAL_PACKAGE" ]; then
+          echo "Installing packed dependency: $FINAL_PACKAGE"
+          pnpm add "$FINAL_PACKAGE"
+          pnpm install
+        else
+          echo "Warning: No packed file found"
+        fi
 
     - name: Prepare PR details
       if: steps.validate-sha.outputs.needs-update == 'true'
@@ -224,7 +305,7 @@ runs:
         BODY="${{ inputs.pr-body-template }}"
         BODY="${BODY//\{repository\}/${{ inputs.repository }}}"
         BODY="${BODY//\{resolved_sha\}/${{ steps.validate-sha.outputs.resolved-sha }}}"
-        BODY="${BODY//\{pack_command\}/${{ inputs.pack-command }}}"
+        BODY="${BODY//\{pack_command\}/pnpm pack}"
         BODY="${BODY//\{last_sha\}/${{ steps.validate-sha.outputs.last-sha }}}"
         
         # Handle commit messages separately due to multiline nature
@@ -247,7 +328,7 @@ runs:
         branch: ${{ steps.prepare-pr.outputs.branch }}
         commit-message: 'chore: set ${{ inputs.repository }}@${{ steps.validate-sha.outputs.resolved-sha }}'
         title: ${{ steps.prepare-pr.outputs.title }}
-        add-paths: 'package.json, pnpm-lock.yaml, packs, ${{ inputs.file-path }}'
+        add-paths: 'package.json, pnpm-lock.yaml, ${{ inputs.pack-destination }}, ${{ inputs.file-path }}'
         labels: ${{ steps.prepare-pr.outputs.labels }}
         draft: ${{ inputs.draft }}
         body: ${{ steps.prepare-pr.outputs.body }}

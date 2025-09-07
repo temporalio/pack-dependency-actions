@@ -52,9 +52,6 @@ jobs:
         with:
           version: 8
 
-      - name: Install dependencies
-        run: pnpm install
-
       - name: Generate UI update PR
         uses: ./generate-pr
         with:
@@ -63,8 +60,12 @@ jobs:
           mode: ${{ inputs.mode }}
           file-path: '.ui-sha'
           repository: 'temporalio/ui'
-          pack-command: 'pnpm pack'
-          install-command: 'pnpm add'
+          pack-destination: './packs'
+          package-name: '@temporalio/ui'
+          pre-pack-commands: 'pnpm svelte-kit sync'
+          package-command: 'pnpm package'
+          remove-prepare-script: true
+          ignore-scripts: true
           pr-title-template: '{mode} temporalio/ui@{short_sha}'
           pr-body-template: |
             This PR uses a local `.tgz` package built from `temporalio/ui@{resolved_sha}`.
