@@ -1,34 +1,25 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release (e.g., v1.0.0)'
-        required: true
-        type: string
+  release:
+    types: [published]
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  update-tags:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Determine version
+      - name: Extract version info
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
-          else
-            VERSION="${{ github.ref_name }}"
-          fi
+          VERSION="${{ github.event.release.tag_name }}"
           
           # Ensure version starts with 'v'
           if [[ ! "$VERSION" =~ ^v ]]; then
@@ -41,78 +32,44 @@ jobs:
           # Extract major version for tagging
           MAJOR_VERSION=$(echo "$VERSION" | grep -oE '^v[0-9]+')
           echo "major_version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.version.outputs.version }}
-          release_name: Release ${{ steps.version.outputs.version }}
-          body: |
-            ## Pack Dependency Actions ${{ steps.version.outputs.version }}
-            
-            ### 📦 Included Actions
-            
-            - **check-version**: Version comparison with PR commenting
-            - **version-sweep**: Batch PR version checking
-            - **generate-pr**: Automated PR generation with packed dependencies
-            - **auto-delete**: Stale PR cleanup
-            
-            ### 📋 Usage
-            
-            ```yaml
-            # Check version in PR
-            uses: ${{ github.repository }}/check-version@${{ steps.version.outputs.version }}
-            
-            # Sweep all PRs
-            uses: ${{ github.repository }}/version-sweep@${{ steps.version.outputs.version }}
-            
-            # Generate update PR
-            uses: ${{ github.repository }}/generate-pr@${{ steps.version.outputs.version }}
-            
-            # Auto-delete stale PRs
-            uses: ${{ github.repository }}/auto-delete@${{ steps.version.outputs.version }}
-            ```
-            
-            ### 🔄 What's Changed
-            
-            See [full changelog](https://github.com/${{ github.repository }}/compare/v1.0.0...${{ steps.version.outputs.version }})
-          draft: false
-          prerelease: false
+          
+          echo "Released version: $VERSION"
+          echo "Major version tag: $MAJOR_VERSION"
 
       - name: Update major version tag
         run: |
           git config user.name github-actions[bot]
           git config user.email github-actions[bot]@users.noreply.github.com
           
-          # Delete existing major version tag if it exists
-          git tag -d ${{ steps.version.outputs.major_version }} 2>/dev/null || true
-          git push origin :refs/tags/${{ steps.version.outputs.major_version }} 2>/dev/null || true
-          
-          # Create new major version tag
-          git tag -a ${{ steps.version.outputs.major_version }} -m "Release ${{ steps.version.outputs.version }}"
-          git push origin ${{ steps.version.outputs.major_version }}
+          # Force update the major version tag to point to the release tag
+          git tag -f ${{ steps.version.outputs.major_version }} ${{ steps.version.outputs.version }}
+          git push origin ${{ steps.version.outputs.major_version }} --force
           
           echo "✅ Updated ${{ steps.version.outputs.major_version }} tag to point to ${{ steps.version.outputs.version }}"
 
-  update-examples:
-    needs: release
+  update-readme:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout main branch
         uses: actions/checkout@v4
         with:
           ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version info
+        id: version
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          MAJOR_VERSION=$(echo "$VERSION" | grep -oE '^v[0-9]+')
+          echo "major_version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
 
       - name: Update README examples
         run: |
-          VERSION="${{ github.ref_name }}"
-          MAJOR_VERSION=$(echo "$VERSION" | grep -oE '^v[0-9]+')
+          # Update version references in README to use major version
+          sed -i "s|@v[0-9]\+|@${{ steps.version.outputs.major_version }}|g" README.md
           
-          # Update version references in README
-          sed -i "s|@v[0-9]\+|@${MAJOR_VERSION}|g" README.md
+          # Update any specific version mentions in usage examples
+          sed -i "s|pack-dependency-actions/[^@]*@v[0-9]\+|pack-dependency-actions/\1@${{ steps.version.outputs.major_version }}|g" README.md
           
           # Check if changes were made
           if git diff --quiet; then
@@ -121,6 +78,44 @@ jobs:
             git config user.name github-actions[bot]
             git config user.email github-actions[bot]@users.noreply.github.com
             git add README.md
-            git commit -m "docs: update README examples to ${MAJOR_VERSION}"
+            git commit -m "docs: update README examples to ${{ steps.version.outputs.major_version }}"
             git push
+            echo "✅ Updated README examples to use ${{ steps.version.outputs.major_version }}"
           fi
+
+  notify-release:
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [update-tags, update-readme]
+    steps:
+      - name: Post release summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ github.event.release.tag_name }}';
+            const majorVersion = version.match(/^v\d+/)[0];
+            
+            const comment = `## 🎉 Release ${version} Published!
+            
+            ### ✅ Post-release tasks completed:
+            - Updated ${majorVersion} tag to point to ${version}
+            - Updated README examples to use ${majorVersion}
+            
+            ### 📦 Actions available at:
+            - \`${{ github.repository }}/check-version@${majorVersion}\`
+            - \`${{ github.repository }}/version-sweep@${majorVersion}\`
+            - \`${{ github.repository }}/generate-pr@${majorVersion}\`
+            - \`${{ github.repository }}/auto-delete@${majorVersion}\`
+            
+            Users can now reference this release using either:
+            - Full version: \`@${version}\`
+            - Major version: \`@${majorVersion}\` (recommended for automatic updates)`;
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ github.event.release.id }},
+              body: comment
+            }).catch(() => {
+              console.log('Could not post comment on release');
+            });

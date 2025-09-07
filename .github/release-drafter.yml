@@ -1,0 +1,122 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+categories:
+  - title: '🚀 Features'
+    labels:
+      - 'feature'
+      - 'enhancement'
+      - 'feat'
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'fix'
+      - 'bugfix'
+      - 'bug'
+  - title: '🔧 Maintenance'
+    labels:
+      - 'chore'
+      - 'maintenance'
+  - title: '📚 Documentation'
+    labels:
+      - 'documentation'
+      - 'docs'
+  - title: '⬆️ Dependencies'
+    labels:
+      - 'dependencies'
+      - 'deps'
+
+change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
+change-title-escapes: '\<*_&'
+
+version-resolver:
+  major:
+    labels:
+      - 'major'
+      - 'breaking-change'
+  minor:
+    labels:
+      - 'minor'
+      - 'feature'
+      - 'enhancement'
+      - 'feat'
+  patch:
+    labels:
+      - 'patch'
+      - 'fix'
+      - 'bugfix'
+      - 'bug'
+      - 'chore'
+      - 'docs'
+      - 'dependencies'
+  default: patch
+
+autolabeler:
+  - label: 'feat'
+    title:
+      - '/^feat(\(.+\))?:/i'
+  - label: 'fix'
+    title:
+      - '/^fix(\(.+\))?:/i'
+  - label: 'chore'
+    title:
+      - '/^chore(\(.+\))?:/i'
+  - label: 'docs'
+    title:
+      - '/^docs(\(.+\))?:/i'
+  - label: 'dependencies'
+    title:
+      - '/^(deps|build\(deps\)):/i'
+    files:
+      - 'package*.json'
+      - 'pnpm-lock.yaml'
+      - 'yarn.lock'
+
+exclude-labels:
+  - 'skip-changelog'
+  - 'no-changelog'
+  - 'release'
+
+template: |
+  ## Pack Dependency Actions v$RESOLVED_VERSION
+
+  ### What's Changed
+  
+  $CHANGES
+  
+  ### 📦 Available Actions
+  
+  This release includes the following actions:
+  - **check-version**: Version comparison with PR commenting
+  - **version-sweep**: Batch PR version checking  
+  - **generate-pr**: Automated PR generation with packed dependencies
+  - **auto-delete**: Stale PR cleanup
+  
+  ### 📋 Usage
+  
+  ```yaml
+  # Check version in PR
+  uses: $OWNER/$REPOSITORY/check-version@v$RESOLVED_VERSION
+  
+  # Sweep all PRs
+  uses: $OWNER/$REPOSITORY/version-sweep@v$RESOLVED_VERSION
+  
+  # Generate update PR
+  uses: $OWNER/$REPOSITORY/generate-pr@v$RESOLVED_VERSION
+  
+  # Auto-delete stale PRs
+  uses: $OWNER/$REPOSITORY/auto-delete@v$RESOLVED_VERSION
+  ```
+  
+  ### 🏷️ Version Tags
+  
+  You can reference this release using:
+  - Full version: `@v$RESOLVED_VERSION`
+  - Major version: `@v$RESOLVED_VERSION_MAJOR` (automatically updated)
+  
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
+  
+  ---
+  
+  ### Contributors
+  
+  $CONTRIBUTORS
