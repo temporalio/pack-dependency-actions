@@ -1,0 +1,223 @@
+name: 'Generate Update PR'
+description: 'Generate a PR to update packed dependencies with commit log'
+author: 'Your Organization'
+
+inputs:
+  target-sha:
+    description: 'Target commit SHA or branch name. Leave blank for latest'
+    required: false
+    default: ''
+  allow-rollback:
+    description: 'Allow a commit older than the last merged SHA'
+    required: false
+    default: 'false'
+  mode:
+    description: 'PR mode (test or release)'
+    required: false
+    default: 'test'
+  file-path:
+    description: 'Path to version file'
+    required: false
+    default: '.ui-sha'
+  repository:
+    description: 'Source repository (owner/name)'
+    required: true
+  pack-command:
+    description: 'Command to pack the dependency'
+    required: false
+    default: 'pnpm pack'
+  install-command:
+    description: 'Command to install the packed dependency'
+    required: false
+    default: 'pnpm add'
+  pr-title-template:
+    description: 'Template for PR title'
+    required: false
+    default: '{mode} {repository}@{short_sha}'
+  pr-body-template:
+    description: 'Template for PR body'
+    required: false
+    default: |
+      This PR uses a local `.tgz` package built from `{repository}@{resolved_sha}`.
+      The `.tgz` was created with `{pack_command}` and installed directly. Use this pr to confirm the commit is functional.
+      
+      ### 🧾 Changes in [`{repository}`](https://github.com/{repository})
+      **Commit range:** [`{last_sha}...{resolved_sha}`](https://github.com/{repository}/compare/{last_sha}...{resolved_sha})
+      
+      {commit_messages}
+  labels:
+    description: 'Labels to add to PR'
+    required: false
+    default: '{mode}-ui'
+  draft:
+    description: 'Create as draft PR (always-true, true, false)'
+    required: false
+    default: 'always-true'
+  token:
+    description: 'GitHub token'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  pr-created:
+    description: 'Whether a PR was created'
+    value: ${{ steps.create-pr.outputs.pull-request-number != '' }}
+  pr-number:
+    description: 'PR number if created'
+    value: ${{ steps.create-pr.outputs.pull-request-number }}
+  pr-url:
+    description: 'PR URL if created'
+    value: ${{ steps.create-pr.outputs.pull-request-url }}
+  resolved-sha:
+    description: 'Resolved commit SHA'
+    value: ${{ steps.validate-sha.outputs.resolved-sha }}
+  short-sha:
+    description: 'Short commit SHA'
+    value: ${{ steps.validate-sha.outputs.short-sha }}
+  last-sha:
+    description: 'Last merged SHA'
+    value: ${{ steps.validate-sha.outputs.last-sha }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate and resolve SHA
+      id: validate-sha
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        FILE_PATH="${{ inputs.file-path }}"
+        REPO="${{ inputs.repository }}"
+        TARGET_SHA="${{ inputs.target-sha }}"
+        ALLOW_ROLLBACK="${{ inputs.allow-rollback }}"
+        
+        # Get last merged SHA from file
+        LAST_SHA=""
+        if [ -f "$FILE_PATH" ]; then
+          LAST_SHA=$(head -n 1 "$FILE_PATH" | tr -d '[:space:]')
+        fi
+        echo "last-sha=$LAST_SHA" >> $GITHUB_OUTPUT
+        
+        # Resolve target SHA
+        if [ -z "$TARGET_SHA" ]; then
+          echo "Fetching latest commit from $REPO..."
+          RESOLVED_SHA=$(gh api repos/$REPO/commits/HEAD --jq .sha)
+        else
+          # Check if it's a branch name or SHA
+          if [[ "$TARGET_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
+            RESOLVED_SHA="$TARGET_SHA"
+          else
+            echo "Resolving branch $TARGET_SHA to SHA..."
+            RESOLVED_SHA=$(gh api repos/$REPO/commits/$TARGET_SHA --jq .sha)
+          fi
+        fi
+        
+        echo "resolved-sha=$RESOLVED_SHA" >> $GITHUB_OUTPUT
+        echo "short-sha=${RESOLVED_SHA:0:8}" >> $GITHUB_OUTPUT
+        
+        # Check if rollback without permission
+        if [ -n "$LAST_SHA" ] && [ "$ALLOW_ROLLBACK" != "true" ]; then
+          # Compare commit dates
+          LAST_DATE=$(gh api repos/$REPO/commits/$LAST_SHA --jq .commit.committer.date)
+          NEW_DATE=$(gh api repos/$REPO/commits/$RESOLVED_SHA --jq .commit.committer.date)
+          
+          if [[ "$NEW_DATE" < "$LAST_DATE" ]]; then
+            echo "Error: Target commit is older than last merged commit. Set allow-rollback=true to proceed."
+            exit 1
+          fi
+        fi
+        
+        # Check if same as last SHA
+        if [ "$RESOLVED_SHA" = "$LAST_SHA" ]; then
+          echo "Target SHA is same as current. No update needed."
+          echo "needs-update=false" >> $GITHUB_OUTPUT
+        else
+          echo "needs-update=true" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build commit log
+      if: steps.validate-sha.outputs.needs-update == 'true'
+      id: commit-log
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        REPO="${{ inputs.repository }}"
+        LAST_SHA="${{ steps.validate-sha.outputs.last-sha }}"
+        NEW_SHA="${{ steps.validate-sha.outputs.resolved-sha }}"
+        
+        if [ -z "$LAST_SHA" ]; then
+          # First time setup, just show new commit
+          COMMITS=$(gh api repos/$REPO/commits/$NEW_SHA --jq '"- [" + .sha[0:8] + "](" + .html_url + ") " + .commit.message')
+        else
+          # Get commit range
+          COMMITS=$(gh api "repos/$REPO/compare/${LAST_SHA}...${NEW_SHA}" \
+            --jq '.commits[] | "- [" + .sha[0:8] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])')
+        fi
+        
+        echo "commit-messages<<EOF" >> $GITHUB_OUTPUT
+        echo "$COMMITS" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Update SHA file
+      if: steps.validate-sha.outputs.needs-update == 'true'
+      shell: bash
+      run: |
+        echo "${{ steps.validate-sha.outputs.resolved-sha }}" > ${{ inputs.file-path }}
+
+    - name: Pack and install dependency
+      if: steps.validate-sha.outputs.needs-update == 'true' && inputs.pack-command != ''
+      shell: bash
+      run: |
+        REPO="${{ inputs.repository }}"
+        SHA="${{ steps.validate-sha.outputs.resolved-sha }}"
+        
+        # Clone and pack
+        TEMP_DIR=$(mktemp -d)
+        cd $TEMP_DIR
+        gh repo clone $REPO . -- --depth 1 --single-branch
+        git checkout $SHA
+        
+        # Run pack command
+        ${{ inputs.pack-command }}
+        
+        # Find the packed file
+        PACKED_FILE=$(ls *.tgz 2>/dev/null | head -n 1)
+        if [ -z "$PACKED_FILE" ]; then
+          echo "No .tgz file found after packing"
+          exit 1
+        fi
+        
+        # Move to workspace and install
+        mv $PACKED_FILE $GITHUB_WORKSPACE/
+        cd $GITHUB_WORKSPACE
+        
+        # Install the packed dependency
+        ${{ inputs.install-command }} ./$PACKED_FILE
+        
+        # Clean up
+        rm -rf $TEMP_DIR
+
+    - name: Create Pull Request
+      if: steps.validate-sha.outputs.needs-update == 'true'
+      id: create-pr
+      uses: peter-evans/create-pull-request@v7
+      with:
+        token: ${{ inputs.token }}
+        reviewers: ${{ github.actor }}
+        committer: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
+        author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
+        branch: ${{ format('{0}-ui-{1}', inputs.mode, steps.validate-sha.outputs.short-sha) }}
+        commit-message: 'chore: set ${{ inputs.repository }}@${{ steps.validate-sha.outputs.resolved-sha }}'
+        title: ${{ format(inputs.pr-title-template, mode=inputs.mode, repository=inputs.repository, short_sha=steps.validate-sha.outputs.short-sha) }}
+        add-paths: 'package.json, pnpm-lock.yaml, packs, ${{ inputs.file-path }}'
+        labels: ${{ format(inputs.labels, mode=inputs.mode) }}
+        draft: ${{ inputs.draft }}
+        body: |
+          ${{ format(inputs.pr-body-template,
+              repository=inputs.repository,
+              resolved_sha=steps.validate-sha.outputs.resolved-sha,
+              pack_command=inputs.pack-command,
+              last_sha=steps.validate-sha.outputs.last-sha,
+              commit_messages=steps.commit-log.outputs.commit-messages) }}

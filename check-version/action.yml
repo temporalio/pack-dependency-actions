@@ -1,0 +1,138 @@
+name: 'Check Pack Version'
+description: 'Check and compare dependency version between main branch and PR'
+author: 'Your Organization'
+
+inputs:
+  file-path:
+    description: 'Path to version file to check'
+    required: false
+    default: '.ui-sha'
+  pr-number:
+    description: 'PR number (optional, for workflow_call scenarios)'
+    required: false
+  comment-title:
+    description: 'Title for PR comment'
+    required: false
+    default: 'Version Mismatch Detected'
+  comment-body-template:
+    description: 'Template for comment body with {main_version} and {pr_version} placeholders'
+    required: false
+    default: |
+      ## {comment_title}
+      
+      The version file `{file_path}` differs between the main branch and this PR.
+      
+      **Main branch version:** `{main_version}`
+      **PR version:** `{pr_version}`
+      
+      To update this PR with the latest version from main, run:
+      ```bash
+      {update_command}
+      ```
+  update-command:
+    description: 'Command to fix version mismatch'
+    required: false
+    default: 'pnpm run update-ui'
+  token:
+    description: 'GitHub token'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  mismatch:
+    description: 'Boolean indicating if versions differ'
+    value: ${{ steps.check-version.outputs.mismatch }}
+  main-version:
+    description: 'Version from main branch'
+    value: ${{ steps.check-version.outputs.main-version }}
+  pr-version:
+    description: 'Version from PR branch'
+    value: ${{ steps.check-version.outputs.pr-version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Fetch main branch
+      shell: bash
+      run: |
+        git fetch origin main --depth=1
+
+    - name: Check version files
+      id: check-version
+      shell: bash
+      run: |
+        FILE_PATH="${{ inputs.file-path }}"
+        
+        # Get version from main branch
+        MAIN_VERSION=""
+        if git show origin/main:"${FILE_PATH}" > /dev/null 2>&1; then
+          MAIN_VERSION=$(git show origin/main:"${FILE_PATH}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+        fi
+        
+        # Get version from current branch
+        PR_VERSION=""
+        if [ -f "${FILE_PATH}" ]; then
+          PR_VERSION=$(head -n 1 "${FILE_PATH}" | tr -d '[:space:]')
+        fi
+        
+        # Check if both files exist
+        if [ -z "$MAIN_VERSION" ] && [ -z "$PR_VERSION" ]; then
+          echo "File ${FILE_PATH} doesn't exist in either branch"
+          echo "mismatch=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Check if only one file exists
+        if [ -z "$MAIN_VERSION" ] || [ -z "$PR_VERSION" ]; then
+          echo "File ${FILE_PATH} exists in only one branch"
+          echo "mismatch=true" >> $GITHUB_OUTPUT
+          echo "main-version=${MAIN_VERSION:-missing}" >> $GITHUB_OUTPUT
+          echo "pr-version=${PR_VERSION:-missing}" >> $GITHUB_OUTPUT
+        else
+          # Compare versions
+          if [ "$MAIN_VERSION" != "$PR_VERSION" ]; then
+            echo "Version mismatch detected"
+            echo "mismatch=true" >> $GITHUB_OUTPUT
+          else
+            echo "Versions match"
+            echo "mismatch=false" >> $GITHUB_OUTPUT
+          fi
+          echo "main-version=$MAIN_VERSION" >> $GITHUB_OUTPUT
+          echo "pr-version=$PR_VERSION" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Find existing comment
+      if: steps.check-version.outputs.mismatch == 'true' && inputs.pr-number
+      id: find-comment
+      uses: peter-evans/find-comment@v3
+      with:
+        token: ${{ inputs.token }}
+        issue-number: ${{ inputs.pr-number }}
+        comment-author: 'github-actions[bot]'
+        body-includes: ${{ inputs.comment-title }}
+
+    - name: Create or update comment
+      if: steps.check-version.outputs.mismatch == 'true' && inputs.pr-number
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        token: ${{ inputs.token }}
+        issue-number: ${{ inputs.pr-number }}
+        comment-id: ${{ steps.find-comment.outputs.comment-id }}
+        edit-mode: replace
+        body: |
+          ${{ format(inputs.comment-body-template, 
+              comment_title=inputs.comment-title,
+              file_path=inputs.file-path,
+              main_version=steps.check-version.outputs.main-version,
+              pr_version=steps.check-version.outputs.pr-version,
+              update_command=inputs.update-command) }}
+
+    - name: Remove comment if versions match
+      if: steps.check-version.outputs.mismatch == 'false' && inputs.pr-number && steps.find-comment.outputs.comment-id
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        gh api \
+          --method DELETE \
+          "/repos/${{ github.repository }}/issues/comments/${{ steps.find-comment.outputs.comment-id }}"

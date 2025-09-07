@@ -1,0 +1,177 @@
+name: 'Auto Delete Generated PRs'
+description: 'Automatically close and delete stale generated PRs'
+author: 'Your Organization'
+
+inputs:
+  days-old:
+    description: 'Close PRs older than this many days'
+    required: false
+    default: '7'
+  labels-filter:
+    description: 'Filter PRs by labels (comma-separated)'
+    required: false
+    default: 'test-ui'
+  dry-run:
+    description: 'Dry run mode (show what would be deleted without deleting)'
+    required: false
+    default: 'false'
+  close-comment:
+    description: 'Comment to post before closing'
+    required: false
+    default: |
+      ## Automated Cleanup Notice
+      
+      This automated PR has been open for more than {days} days without activity and will now be closed.
+      
+      If these changes are still needed:
+      1. You can reopen this PR if you have permissions
+      2. Or create a new PR with the same changes
+      3. Or manually run the update command
+      
+      Branch `{branch}` will be deleted to keep the repository clean.
+      
+      *This action was performed automatically by the cleanup workflow.*
+  exclude-labels:
+    description: 'Exclude PRs with these labels (comma-separated)'
+    required: false
+    default: 'do-not-close,in-progress'
+  author-filter:
+    description: 'Only close PRs from these authors (comma-separated, use bot for github-actions[bot])'
+    required: false
+    default: 'bot'
+  token:
+    description: 'GitHub token'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  closed-count:
+    description: 'Number of PRs closed'
+    value: ${{ steps.process.outputs.closed-count }}
+  closed-prs:
+    description: 'JSON array of closed PR numbers'
+    value: ${{ steps.process.outputs.closed-prs }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure cleanup parameters
+      id: config
+      shell: bash
+      run: |
+        DAYS_OLD="${{ inputs.days-old }}"
+        DRY_RUN="${{ inputs.dry-run }}"
+        STALE_DATE=$(date -d "${DAYS_OLD} days ago" +%Y-%m-%d)
+        
+        echo "days-old=$DAYS_OLD" >> $GITHUB_OUTPUT
+        echo "dry-run=$DRY_RUN" >> $GITHUB_OUTPUT
+        echo "stale-date=$STALE_DATE" >> $GITHUB_OUTPUT
+        
+        echo "Configuration:"
+        echo "  Days old: $DAYS_OLD"
+        echo "  Dry run: $DRY_RUN"
+        echo "  Stale date: $STALE_DATE"
+
+    - name: Find stale PRs
+      id: find-stale
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        echo "Finding stale PRs..."
+        
+        # Build label filters
+        LABEL_FILTER=""
+        if [ -n "${{ inputs.labels-filter }}" ]; then
+          IFS=',' read -ra LABELS <<< "${{ inputs.labels-filter }}"
+          for label in "${LABELS[@]}"; do
+            LABEL_FILTER="$LABEL_FILTER --label \"$(echo $label | xargs)\""
+          done
+        fi
+        
+        # Get all matching PRs
+        ALL_PRS=$(gh pr list -R ${{ github.repository }} \
+          --state open \
+          $LABEL_FILTER \
+          --json number,createdAt,title,author,labels,headRefName,url)
+        
+        # Filter by date and other criteria
+        STALE_PRS=$(echo "$ALL_PRS" | jq --arg date "${{ steps.config.outputs.stale-date }}" \
+          '[.[] | select(.createdAt < $date + "T00:00:00Z")]')
+        
+        # Filter by author if specified
+        if [ "${{ inputs.author-filter }}" = "bot" ]; then
+          STALE_PRS=$(echo "$STALE_PRS" | jq '[.[] | select(.author.login == "github-actions[bot]" or .author.login == "dependabot[bot]")]')
+        elif [ -n "${{ inputs.author-filter }}" ]; then
+          AUTHORS="${{ inputs.author-filter }}"
+          STALE_PRS=$(echo "$STALE_PRS" | jq --arg authors "$AUTHORS" \
+            '[.[] | select(.author.login | IN($authors | split(",") | map(ltrimstr(" ") | rtrimstr(" ")) | .[]))]')
+        fi
+        
+        # Exclude PRs with certain labels
+        if [ -n "${{ inputs.exclude-labels }}" ]; then
+          IFS=',' read -ra EXCLUDE_LABELS <<< "${{ inputs.exclude-labels }}"
+          for label in "${EXCLUDE_LABELS[@]}"; do
+            LABEL_TRIMMED=$(echo $label | xargs)
+            STALE_PRS=$(echo "$STALE_PRS" | jq --arg label "$LABEL_TRIMMED" \
+              '[.[] | select((.labels | map(.name) | index($label)) == null)]')
+          done
+        fi
+        
+        # Count and save results
+        PR_COUNT=$(echo "$STALE_PRS" | jq '. | length')
+        if [ "$PR_COUNT" -eq 0 ]; then
+          echo "No stale PRs found"
+          echo "has-stale=false" >> $GITHUB_OUTPUT
+          echo "stale-prs=[]" >> $GITHUB_OUTPUT
+        else
+          echo "Found $PR_COUNT stale PR(s)"
+          echo "$STALE_PRS" | jq -r '.[] | "  #\(.number): \(.title) (created: \(.createdAt))"'
+          echo "has-stale=true" >> $GITHUB_OUTPUT
+          echo "stale-prs<<EOF" >> $GITHUB_OUTPUT
+          echo "$STALE_PRS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Process stale PRs
+      id: process
+      if: steps.find-stale.outputs.has-stale == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        DRY_RUN="${{ inputs.dry-run }}"
+        CLOSED_COUNT=0
+        CLOSED_PRS="[]"
+        
+        # Process each PR
+        echo "${{ steps.find-stale.outputs.stale-prs }}" | jq -c '.[]' | while IFS= read -r pr; do
+          PR_NUM=$(echo "$pr" | jq -r .number)
+          PR_TITLE=$(echo "$pr" | jq -r .title)
+          PR_BRANCH=$(echo "$pr" | jq -r .headRefName)
+          
+          echo "Processing PR #${PR_NUM}: ${PR_TITLE}"
+          
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "  [DRY RUN] Would close PR #${PR_NUM} and delete branch ${PR_BRANCH}"
+            CLOSED_COUNT=$((CLOSED_COUNT + 1))
+            CLOSED_PRS=$(echo "$CLOSED_PRS" | jq ". + [$PR_NUM]")
+          else
+            # Post comment with placeholders replaced
+            COMMENT="${{ inputs.close-comment }}"
+            COMMENT="${COMMENT//\{days\}/${{ inputs.days-old }}}"
+            COMMENT="${COMMENT//\{branch\}/$PR_BRANCH}"
+            
+            gh pr comment $PR_NUM -R ${{ github.repository }} --body "$COMMENT"
+            
+            # Close PR and delete branch
+            gh pr close $PR_NUM -R ${{ github.repository }} --delete-branch
+            echo "  ✓ PR #${PR_NUM} closed and branch deleted"
+            
+            CLOSED_COUNT=$((CLOSED_COUNT + 1))
+            CLOSED_PRS=$(echo "$CLOSED_PRS" | jq ". + [$PR_NUM]")
+          fi
+        done
+        
+        echo "closed-count=$CLOSED_COUNT" >> $GITHUB_OUTPUT
+        echo "closed-prs=$CLOSED_PRS" >> $GITHUB_OUTPUT

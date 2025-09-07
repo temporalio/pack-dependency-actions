@@ -1,0 +1,74 @@
+name: 'Version Sweep'
+description: 'Check version consistency across all open PRs'
+author: 'Your Organization'
+
+inputs:
+  file-path:
+    description: 'Path to version file to check'
+    required: false
+    default: '.ui-sha'
+  base-branch:
+    description: 'Base branch to check PRs against'
+    required: false
+    default: 'main'
+  labels-filter:
+    description: 'Filter PRs by labels (comma-separated)'
+    required: false
+    default: ''
+  max-parallel:
+    description: 'Maximum parallel PR checks'
+    required: false
+    default: '5'
+  token:
+    description: 'GitHub token'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  pr-count:
+    description: 'Number of PRs checked'
+    value: ${{ steps.get-prs.outputs.count }}
+  pr-list:
+    description: 'JSON array of PR numbers'
+    value: ${{ steps.get-prs.outputs.list }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Get open PRs
+      id: get-prs
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        echo "Fetching open PRs targeting ${{ inputs.base-branch }}..."
+        
+        # Build label filter if provided
+        LABEL_FILTER=""
+        if [ -n "${{ inputs.labels-filter }}" ]; then
+          IFS=',' read -ra LABELS <<< "${{ inputs.labels-filter }}"
+          for label in "${LABELS[@]}"; do
+            LABEL_FILTER="$LABEL_FILTER --label \"$label\""
+          done
+        fi
+        
+        # Get PR list
+        PRS=$(gh pr list -R ${{ github.repository }} \
+          --state open \
+          --base ${{ inputs.base-branch }} \
+          $LABEL_FILTER \
+          --json number \
+          --jq '[.[].number]')
+        
+        PR_COUNT=$(echo "$PRS" | jq '. | length')
+        echo "Found $PR_COUNT open PRs"
+        
+        echo "count=$PR_COUNT" >> $GITHUB_OUTPUT
+        echo "list=$PRS" >> $GITHUB_OUTPUT
+        
+        # Create matrix for workflow dispatch
+        if [ "$PR_COUNT" -gt 0 ]; then
+          echo "matrix=$PRS" >> $GITHUB_OUTPUT
+        else
+          echo "matrix=[]" >> $GITHUB_OUTPUT
+        fi

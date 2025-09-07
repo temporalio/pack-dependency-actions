@@ -1,0 +1,47 @@
+name: UI Pack Version Sweep
+on:
+  push:
+    branches: [main]
+    paths: ['.ui-sha']
+  workflow_dispatch:
+
+jobs:
+  get-open-prs:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.sweep.outputs.matrix }}
+      count: ${{ steps.sweep.outputs.pr-count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Get PRs to check
+        id: sweep
+        uses: ./version-sweep
+        with:
+          file-path: '.ui-sha'
+          base-branch: 'main'
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  check-pr:
+    needs: get-open-prs
+    if: needs.get-open-prs.outputs.matrix != '[]'
+    strategy:
+      matrix:
+        pr: ${{ fromJson(needs.get-open-prs.outputs.matrix) }}
+      fail-fast: false
+      max-parallel: 5
+    uses: ./.github/workflows/check-ui-pack-version.yml
+    with:
+      pr_number: ${{ matrix.pr }}
+    secrets: inherit
+  
+  summary:
+    needs: [get-open-prs, check-pr]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print summary
+        run: |
+          echo "## Version Sweep Summary"
+          echo "Checked ${{ needs.get-open-prs.outputs.count }} open PRs for version consistency"

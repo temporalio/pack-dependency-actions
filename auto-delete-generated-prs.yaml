@@ -1,0 +1,66 @@
+name: Auto Delete Generated PRs
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight UTC
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Dry run mode (show what would be deleted without deleting)'
+        required: false
+        type: boolean
+        default: false
+      days-old:
+        description: 'Close PRs older than this many days'
+        required: false
+        type: number
+        default: 7
+
+jobs:
+  cleanup-stale-prs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Clean up stale PRs
+        id: cleanup
+        uses: ./auto-delete
+        with:
+          days-old: ${{ inputs.days-old || 7 }}
+          dry-run: ${{ inputs.dry-run || false }}
+          labels-filter: 'test-ui,automated'
+          exclude-labels: 'do-not-close,in-progress,needs-review'
+          author-filter: 'bot'
+          close-comment: |
+            ## Automated Cleanup Notice 🧹
+            
+            This automated PR has been open for more than {days} days without activity and will now be closed.
+            
+            ### If these changes are still needed:
+            - Reopen this PR if you have permissions
+            - Create a new PR with the same changes
+            - Run `pnpm run update-ui` to generate a fresh PR
+            
+            The branch `{branch}` will be deleted to keep the repository clean.
+            
+            ---
+            *This action was performed automatically by the cleanup workflow.*
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Cleanup Summary"
+          if [ "${{ inputs.dry-run }}" = "true" ]; then
+            echo "### Dry Run Mode"
+            echo "Would have closed ${{ steps.cleanup.outputs.closed-count }} PR(s)"
+          else
+            echo "Closed ${{ steps.cleanup.outputs.closed-count }} stale PR(s)"
+          fi
+          
+          if [ "${{ steps.cleanup.outputs.closed-count }}" -gt 0 ]; then
+            echo "PR numbers: ${{ steps.cleanup.outputs.closed-prs }}"
+          fi
