@@ -199,6 +199,42 @@ runs:
         # Clean up
         rm -rf $TEMP_DIR
 
+    - name: Prepare PR details
+      if: steps.validate-sha.outputs.needs-update == 'true'
+      id: prepare-pr
+      shell: bash
+      run: |
+        # Prepare branch name
+        BRANCH_NAME="${{ inputs.mode }}-ui-${{ steps.validate-sha.outputs.short-sha }}"
+        echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
+        
+        # Prepare title
+        TITLE="${{ inputs.pr-title-template }}"
+        TITLE="${TITLE//\{mode\}/${{ inputs.mode }}}"
+        TITLE="${TITLE//\{repository\}/${{ inputs.repository }}}"
+        TITLE="${TITLE//\{short_sha\}/${{ steps.validate-sha.outputs.short-sha }}}"
+        echo "title=$TITLE" >> $GITHUB_OUTPUT
+        
+        # Prepare labels
+        LABELS="${{ inputs.labels }}"
+        LABELS="${LABELS//\{mode\}/${{ inputs.mode }}}"
+        echo "labels=$LABELS" >> $GITHUB_OUTPUT
+        
+        # Prepare body
+        BODY="${{ inputs.pr-body-template }}"
+        BODY="${BODY//\{repository\}/${{ inputs.repository }}}"
+        BODY="${BODY//\{resolved_sha\}/${{ steps.validate-sha.outputs.resolved-sha }}}"
+        BODY="${BODY//\{pack_command\}/${{ inputs.pack-command }}}"
+        BODY="${BODY//\{last_sha\}/${{ steps.validate-sha.outputs.last-sha }}}"
+        
+        # Handle commit messages separately due to multiline nature
+        COMMIT_MESSAGES="${{ steps.commit-log.outputs.commit-messages }}"
+        BODY="${BODY//\{commit_messages\}/$COMMIT_MESSAGES}"
+        
+        echo "body<<EOF" >> $GITHUB_OUTPUT
+        echo "$BODY" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Create Pull Request
       if: steps.validate-sha.outputs.needs-update == 'true'
       id: create-pr
@@ -208,16 +244,10 @@ runs:
         reviewers: ${{ github.actor }}
         committer: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
         author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
-        branch: ${{ format('{0}-ui-{1}', inputs.mode, steps.validate-sha.outputs.short-sha) }}
+        branch: ${{ steps.prepare-pr.outputs.branch }}
         commit-message: 'chore: set ${{ inputs.repository }}@${{ steps.validate-sha.outputs.resolved-sha }}'
-        title: ${{ format(inputs.pr-title-template, mode=inputs.mode, repository=inputs.repository, short_sha=steps.validate-sha.outputs.short-sha) }}
+        title: ${{ steps.prepare-pr.outputs.title }}
         add-paths: 'package.json, pnpm-lock.yaml, packs, ${{ inputs.file-path }}'
-        labels: ${{ format(inputs.labels, mode=inputs.mode) }}
+        labels: ${{ steps.prepare-pr.outputs.labels }}
         draft: ${{ inputs.draft }}
-        body: |
-          ${{ format(inputs.pr-body-template,
-              repository=inputs.repository,
-              resolved_sha=steps.validate-sha.outputs.resolved-sha,
-              pack_command=inputs.pack-command,
-              last_sha=steps.validate-sha.outputs.last-sha,
-              commit_messages=steps.commit-log.outputs.commit-messages) }}
+        body: ${{ steps.prepare-pr.outputs.body }}

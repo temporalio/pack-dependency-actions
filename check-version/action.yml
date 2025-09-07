@@ -111,6 +111,23 @@ runs:
         comment-author: 'github-actions[bot]'
         body-includes: ${{ inputs.comment-title }}
 
+    - name: Prepare comment body
+      if: steps.check-version.outputs.mismatch == 'true' && inputs.pr-number
+      id: prepare-comment
+      shell: bash
+      run: |
+        COMMENT_BODY="${{ inputs.comment-body-template }}"
+        COMMENT_BODY="${COMMENT_BODY//\{comment_title\}/${{ inputs.comment-title }}}"
+        COMMENT_BODY="${COMMENT_BODY//\{file_path\}/${{ inputs.file-path }}}"
+        COMMENT_BODY="${COMMENT_BODY//\{main_version\}/${{ steps.check-version.outputs.main-version }}}"
+        COMMENT_BODY="${COMMENT_BODY//\{pr_version\}/${{ steps.check-version.outputs.pr-version }}}"
+        COMMENT_BODY="${COMMENT_BODY//\{update_command\}/${{ inputs.update-command }}}"
+        
+        # Use EOF delimiter for multiline output
+        echo "body<<EOF" >> $GITHUB_OUTPUT
+        echo "$COMMENT_BODY" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Create or update comment
       if: steps.check-version.outputs.mismatch == 'true' && inputs.pr-number
       uses: peter-evans/create-or-update-comment@v4
@@ -119,13 +136,7 @@ runs:
         issue-number: ${{ inputs.pr-number }}
         comment-id: ${{ steps.find-comment.outputs.comment-id }}
         edit-mode: replace
-        body: |
-          ${{ format(inputs.comment-body-template, 
-              comment_title=inputs.comment-title,
-              file_path=inputs.file-path,
-              main_version=steps.check-version.outputs.main-version,
-              pr_version=steps.check-version.outputs.pr-version,
-              update_command=inputs.update-command) }}
+        body: ${{ steps.prepare-comment.outputs.body }}
 
     - name: Remove comment if versions match
       if: steps.check-version.outputs.mismatch == 'false' && inputs.pr-number && steps.find-comment.outputs.comment-id
