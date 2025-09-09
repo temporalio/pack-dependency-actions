@@ -118,10 +118,47 @@ runs:
         # Resolve target SHA
         if [ -z "$TARGET_SHA" ]; then
           echo "Fetching latest commit from $REPO..."
+          echo "Running: gh api repos/$REPO --jq .default_branch"
+          
           # Get the default branch first
-          DEFAULT_BRANCH=$(gh api repos/$REPO --jq .default_branch)
-          echo "Default branch: $DEFAULT_BRANCH"
-          RESOLVED_SHA=$(gh api repos/$REPO/commits/$DEFAULT_BRANCH --jq .sha)
+          DEFAULT_BRANCH=$(gh api repos/$REPO --jq .default_branch 2>&1)
+          API_EXIT_CODE=$?
+          
+          echo "API exit code: $API_EXIT_CODE"
+          echo "Raw API response: '$DEFAULT_BRANCH'"
+          echo "Response length: ${#DEFAULT_BRANCH}"
+          
+          if [ $API_EXIT_CODE -ne 0 ]; then
+            echo "Error: gh api command failed with exit code $API_EXIT_CODE"
+            echo "Error output: $DEFAULT_BRANCH"
+            exit 1
+          fi
+          
+          if [ -z "$DEFAULT_BRANCH" ]; then
+            echo "Error: Could not fetch default branch for $REPO (empty response)"
+            echo "Attempting to use 'main' as fallback..."
+            DEFAULT_BRANCH="main"
+          fi
+          
+          echo "Using branch: '$DEFAULT_BRANCH'"
+          echo "Running: gh api repos/$REPO/commits/$DEFAULT_BRANCH --jq .sha"
+          
+          RESOLVED_SHA=$(gh api repos/$REPO/commits/$DEFAULT_BRANCH --jq .sha 2>&1)
+          SHA_EXIT_CODE=$?
+          
+          echo "SHA API exit code: $SHA_EXIT_CODE"
+          echo "Raw SHA response: '$RESOLVED_SHA'"
+          
+          if [ $SHA_EXIT_CODE -ne 0 ]; then
+            echo "Error: Failed to get SHA for branch '$DEFAULT_BRANCH'"
+            echo "Error output: $RESOLVED_SHA"
+            exit 1
+          fi
+          
+          if [ -z "$RESOLVED_SHA" ]; then
+            echo "Error: Could not resolve SHA for branch $DEFAULT_BRANCH in $REPO (empty response)"
+            exit 1
+          fi
         else
           # Check if it's a branch name or SHA
           if [[ "$TARGET_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
