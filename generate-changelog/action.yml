@@ -52,8 +52,7 @@ runs:
           
           if [ "$FORMAT" = "table" ]; then
             # Table format for PR body
-            COMMITS="| Commit | Author | Date | Message |
-|--------|--------|------|---------|"
+            COMMITS="| Commit | Author | Date | Message |"$'\n'"|--------|--------|------|---------|"
             COMMITS="$COMMITS
 $(echo "$RESPONSE" | jq -r '
               .commits[] | 
