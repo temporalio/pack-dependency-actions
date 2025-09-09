@@ -1,0 +1,84 @@
+name: 'Move Pack'
+description: 'Move packed files from source to destination with optional renaming'
+
+inputs:
+  source-path:
+    description: 'Path to source directory containing packed files'
+    required: false
+    default: 'source'
+  pack-destination:
+    description: 'Destination directory for packed files'
+    required: false
+    default: './packs'
+  package-name:
+    description: 'Package name for renaming'
+    required: false
+  sha:
+    description: 'SHA for file naming'
+    required: false
+  source-pattern:
+    description: 'Pattern to find packed files (e.g., *.tgz)'
+    required: false
+    default: '*.tgz'
+
+outputs:
+  package-file:
+    description: 'Path to moved package'
+    value: ${{ steps.move.outputs.package-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Move packed files
+      id: move
+      shell: bash
+      run: |
+        SOURCE_PATH="${{ inputs.source-path }}"
+        ROOT_PACK_DEST="${{ inputs.pack-destination }}"
+        PACKAGE_NAME="${{ inputs.package-name }}"
+        SHA="${{ inputs.sha }}"
+        PATTERN="${{ inputs.source-pattern }}"
+
+        # Store current directory
+        ROOT_DIR=$(pwd)
+        
+        # Create root pack destination
+        mkdir -p "$ROOT_PACK_DEST"
+
+        cd "$SOURCE_PATH"
+
+        # Find the packed file
+        PACKED_FILE=$(find . -name "$PATTERN" -type f | head -1)
+
+        if [ -z "$PACKED_FILE" ]; then
+          echo "Error: No packed file found matching pattern: $PATTERN"
+          exit 1
+        fi
+
+        echo "Found packed file: $PACKED_FILE"
+        
+        # Get the base filename
+        PACKED_FILENAME=$(basename "$PACKED_FILE")
+
+        # Construct new filename with SHA
+        if [ -n "$SHA" ]; then
+          if [ -n "$PACKAGE_NAME" ]; then
+            # Use provided package name
+            CLEAN_NAME="${PACKAGE_NAME//[@\/]/-}"
+            CLEAN_NAME="${CLEAN_NAME#-}"
+            NEW_NAME="${CLEAN_NAME}-${SHA:0:8}.tgz"
+          else
+            # Extract package name from filename and add SHA
+            BASE_NAME="${PACKED_FILENAME%.tgz}"
+            NEW_NAME="${BASE_NAME}-${SHA:0:8}.tgz"
+          fi
+        else
+          NEW_NAME="$PACKED_FILENAME"
+        fi
+
+        # Move the packed file to root repo's packs directory
+        FINAL_PATH="$ROOT_DIR/$ROOT_PACK_DEST/$NEW_NAME"
+        mv "$PACKED_FILE" "$FINAL_PATH"
+        
+        echo "Moved to: $FINAL_PATH"
+        echo "package-file=$ROOT_PACK_DEST/$NEW_NAME" >> $GITHUB_OUTPUT

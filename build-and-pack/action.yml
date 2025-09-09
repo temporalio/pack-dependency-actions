@@ -6,21 +6,11 @@ inputs:
     description: 'Path to source code'
     required: false
     default: 'source'
-  pack-destination:
-    description: 'Directory for packed files'
-    required: false
-    default: './packs'
-  package-command:
+  build-command:
     description: 'Build command before packing'
     required: false
   pack-command:
     description: 'Custom pack command'
-    required: false
-  package-name:
-    description: 'Package name for renaming'
-    required: false
-  sha:
-    description: 'SHA for file naming'
     required: false
   remove-prepare:
     description: 'Remove prepare script'
@@ -54,32 +44,22 @@ runs:
         pnpm install --frozen-lockfile --ignore-scripts
 
     - name: Build package
-      if: inputs.package-command != ''
+      if: inputs.build-command != ''
       shell: bash
       run: |
         cd "${{ inputs.source-path }}"
-        echo "Running: ${{ inputs.package-command }}"
-        eval "${{ inputs.package-command }}"
+        echo "Running: ${{ inputs.build-command }}"
+        eval "${{ inputs.build-command }}"
 
     - name: Pack dependency
       id: pack
       shell: bash
       run: |
         SOURCE_PATH="${{ inputs.source-path }}"
-        ROOT_PACK_DEST="${{ inputs.pack-destination }}"
-        PACKAGE_NAME="${{ inputs.package-name }}"
-        SHA="${{ inputs.sha }}"
-
-        # Store current directory
-        ROOT_DIR=$(pwd)
-
-        # Create root pack destination
-        mkdir -p "$ROOT_PACK_DEST"
-        rm -rf "$ROOT_PACK_DEST/*"
 
         cd "$SOURCE_PATH"
 
-        # Run pack command (it will use its own pack destination)
+        # Run pack command
         if [ -n "${{ inputs.pack-command }}" ]; then
           echo "Running: ${{ inputs.pack-command }}"
           eval "${{ inputs.pack-command }}"
@@ -99,29 +79,4 @@ runs:
         fi
 
         echo "Found packed file: $PACKED_FILE"
-
-        # Get the base filename
-        PACKED_FILENAME=$(basename "$PACKED_FILE")
-
-        # Construct new filename with SHA
-        if [ -n "$SHA" ]; then
-          if [ -n "$PACKAGE_NAME" ]; then
-            # Use provided package name
-            CLEAN_NAME="${PACKAGE_NAME//[@\/]/-}"
-            CLEAN_NAME="${CLEAN_NAME#-}"
-            NEW_NAME="${CLEAN_NAME}-${SHA:0:8}.tgz"
-          else
-            # Extract package name from filename and add SHA
-            BASE_NAME="${PACKED_FILENAME%.tgz}"
-            NEW_NAME="${BASE_NAME}-${SHA:0:8}.tgz"
-          fi
-        else
-          NEW_NAME="$PACKED_FILENAME"
-        fi
-
-        # Move the packed file to root repo's packs directory
-        FINAL_PATH="$ROOT_DIR/$ROOT_PACK_DEST/$NEW_NAME"
-        mv "$PACKED_FILE" "$FINAL_PATH"
-
-        echo "Moved to: $FINAL_PATH"
-        echo "package-file=$ROOT_PACK_DEST/$NEW_NAME" >> $GITHUB_OUTPUT
+        echo "package-file=$PACKED_FILE" >> $GITHUB_OUTPUT
