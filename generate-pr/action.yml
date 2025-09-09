@@ -326,13 +326,16 @@ runs:
           eval "${{ inputs.pre-pack-commands }}"
         fi
 
+        # Save the full path to the source directory
+        SOURCE_PATH=$(pwd)
+        
         # Run package command if provided
         if [ -n "${{ inputs.package-command }}" ]; then
           echo "Running package command..."
           eval "${{ inputs.package-command }}"
           echo "Current directory after package command: $(pwd)"
           # Return to source root after package command
-          cd "$SOURCE_DIR"
+          cd "$SOURCE_PATH"
         fi
 
         # Pack using the configured command
@@ -340,7 +343,7 @@ runs:
         eval "${{ inputs.pack-command }}"
         
         # Return to source root after pack command (in case it changed directories)
-        cd "$SOURCE_DIR"
+        cd "$SOURCE_PATH"
         
         # Find the created pack file in source root
         CREATED_PACK=$(ls *.tgz 2>/dev/null | head -n 1)
@@ -366,7 +369,7 @@ runs:
         echo "Moving $CREATED_PACK to ../$PACK_DIR/$NEW_NAME"
         
         # Move and rename the file to the main repo's pack directory
-        mv "$SOURCE_DIR/$CREATED_PACK" "../$PACK_DIR/$NEW_NAME"
+        mv "$CREATED_PACK" "../$PACK_DIR/$NEW_NAME"
         
         # Set the final package path
         FINAL_PACKAGE="$PACK_DIR/$NEW_NAME"
