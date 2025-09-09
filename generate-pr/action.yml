@@ -34,6 +34,10 @@ inputs:
     description: 'Command to build the package before packing'
     required: false
     default: ''
+  pack-command:
+    description: 'Command to pack the package (default: pnpm pack)'
+    required: false
+    default: 'pnpm pack'
   remove-prepare-script:
     description: 'Remove prepare script from package.json'
     required: false
@@ -332,8 +336,8 @@ runs:
         fi
 
         # Pack in the source directory (creates .tgz in current directory)
-        echo "Packing in source directory..."
-        pnpm pack
+        echo "Packing in source directory using: ${{ inputs.pack-command }}"
+        eval "${{ inputs.pack-command }}"
         
         # Find the created pack file
         CREATED_PACK=$(ls *.tgz 2>/dev/null | head -n 1)
