@@ -56,10 +56,10 @@ inputs:
     default: |
       This PR uses a local `.tgz` package built from `{repository}@{resolved_sha}`.
       The `.tgz` was created with `pnpm pack` and installed directly. Use this pr to confirm the commit is functional.
-      
+
       ### 🧾 Changes in [`{repository}`](https://github.com/{repository})
       **Commit range:** [`{last_sha}...{resolved_sha}`](https://github.com/{repository}/compare/{last_sha}...{resolved_sha})
-      
+
       {commit_messages}
   labels:
     description: 'Labels to add to PR'
@@ -107,18 +107,21 @@ runs:
         REPO="${{ inputs.repository }}"
         TARGET_SHA="${{ inputs.target-sha }}"
         ALLOW_ROLLBACK="${{ inputs.allow-rollback }}"
-        
+
         # Get last merged SHA from file
         LAST_SHA=""
         if [ -f "$FILE_PATH" ]; then
           LAST_SHA=$(head -n 1 "$FILE_PATH" | tr -d '[:space:]')
         fi
         echo "last-sha=$LAST_SHA" >> $GITHUB_OUTPUT
-        
+
         # Resolve target SHA
         if [ -z "$TARGET_SHA" ]; then
           echo "Fetching latest commit from $REPO..."
-          RESOLVED_SHA=$(gh api repos/$REPO/commits/HEAD --jq .sha)
+          # Get the default branch first
+          DEFAULT_BRANCH=$(gh api repos/$REPO --jq .default_branch)
+          echo "Default branch: $DEFAULT_BRANCH"
+          RESOLVED_SHA=$(gh api repos/$REPO/commits/$DEFAULT_BRANCH --jq .sha)
         else
           # Check if it's a branch name or SHA
           if [[ "$TARGET_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
@@ -128,22 +131,22 @@ runs:
             RESOLVED_SHA=$(gh api repos/$REPO/commits/$TARGET_SHA --jq .sha)
           fi
         fi
-        
+
         echo "resolved-sha=$RESOLVED_SHA" >> $GITHUB_OUTPUT
         echo "short-sha=${RESOLVED_SHA:0:8}" >> $GITHUB_OUTPUT
-        
+
         # Check if rollback without permission
         if [ -n "$LAST_SHA" ] && [ "$ALLOW_ROLLBACK" != "true" ]; then
           # Compare commit dates
           LAST_DATE=$(gh api repos/$REPO/commits/$LAST_SHA --jq .commit.committer.date)
           NEW_DATE=$(gh api repos/$REPO/commits/$RESOLVED_SHA --jq .commit.committer.date)
-          
+
           if [[ "$NEW_DATE" < "$LAST_DATE" ]]; then
             echo "Error: Target commit is older than last merged commit. Set allow-rollback=true to proceed."
             exit 1
           fi
         fi
-        
+
         # Check if same as last SHA
         if [ "$RESOLVED_SHA" = "$LAST_SHA" ]; then
           echo "Target SHA is same as current. No update needed."
@@ -162,7 +165,7 @@ runs:
         REPO="${{ inputs.repository }}"
         LAST_SHA="${{ steps.validate-sha.outputs.last-sha }}"
         NEW_SHA="${{ steps.validate-sha.outputs.resolved-sha }}"
-        
+
         if [ -z "$LAST_SHA" ]; then
           # First time setup, just show new commit
           COMMITS=$(gh api repos/$REPO/commits/$NEW_SHA --jq '"- [" + .sha[0:8] + "](" + .html_url + ") " + .commit.message')
@@ -171,7 +174,7 @@ runs:
           COMMITS=$(gh api "repos/$REPO/compare/${LAST_SHA}...${NEW_SHA}" \
             --jq '.commits[] | "- [" + .sha[0:8] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])')
         fi
-        
+
         echo "commit-messages<<EOF" >> $GITHUB_OUTPUT
         echo "$COMMITS" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
@@ -190,36 +193,36 @@ runs:
         SHA="${{ steps.validate-sha.outputs.resolved-sha }}"
         PACK_DIR="${{ inputs.pack-destination }}"
         PACKAGE_NAME="${{ inputs.package-name }}"
-        
+
         # Reset packs directory
         rm -rf "$PACK_DIR"
         mkdir -p "$PACK_DIR"
-        
+
         # Download source as tarball
         echo "Downloading $REPO@$SHA..."
         curl -L "https://github.com/$REPO/archive/$SHA.tar.gz" -o source.tar.gz
         tar -xzf source.tar.gz
-        
+
         # Find extracted directory (GitHub creates it as repo-name-sha)
         REPO_NAME=$(echo "$REPO" | cut -d'/' -f2)
         SOURCE_DIR="${REPO_NAME}-${SHA}"
-        
+
         # Remove dependency from parent package.json if package name is provided
         if [ -n "$PACKAGE_NAME" ] && [ -f "package.json" ]; then
           echo "Removing $PACKAGE_NAME from parent package.json..."
           cat package.json | jq "del(.dependencies[\"$PACKAGE_NAME\"])" > package.json.tmp
           mv package.json.tmp package.json
         fi
-        
+
         cd "$SOURCE_DIR"
-        
+
         # Remove prepare script if requested
         if [ "${{ inputs.remove-prepare-script }}" = "true" ] && [ -f "package.json" ]; then
           echo "Removing prepare script..."
           cat package.json | jq 'del(.scripts.prepare)' > package.json.tmp
           mv package.json.tmp package.json
         fi
-        
+
         # Install dependencies
         INSTALL_FLAGS=""
         if [ "${{ inputs.ignore-scripts }}" = "true" ]; then
@@ -227,25 +230,25 @@ runs:
         fi
         echo "Installing dependencies..."
         pnpm install $INSTALL_FLAGS
-        
+
         # Run pre-pack commands if provided
         if [ -n "${{ inputs.pre-pack-commands }}" ]; then
           echo "Running pre-pack commands..."
           eval "${{ inputs.pre-pack-commands }}"
         fi
-        
+
         # Run package command if provided
         if [ -n "${{ inputs.package-command }}" ]; then
           echo "Running package command..."
           eval "${{ inputs.package-command }}"
         fi
-        
+
         # Pack the package
         echo "Packing..."
         pnpm pack --pack-destination "../$PACK_DIR"
-        
+
         cd ..
-        
+
         # Rename packed file to include SHA
         if [ -n "$PACKAGE_NAME" ]; then
           # Find the packed file with the package name pattern
@@ -267,10 +270,10 @@ runs:
             FINAL_PACKAGE="$PACK_DIR/${FILENAME}-${SHA}.tgz"
           fi
         fi
-        
+
         # Clean up source directory
         rm -rf "$SOURCE_DIR" source.tar.gz
-        
+
         # Install the packed dependency
         if [ -n "$FINAL_PACKAGE" ]; then
           echo "Installing packed dependency: $FINAL_PACKAGE"
@@ -288,30 +291,30 @@ runs:
         # Prepare branch name
         BRANCH_NAME="${{ inputs.mode }}-ui-${{ steps.validate-sha.outputs.short-sha }}"
         echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
-        
+
         # Prepare title
         TITLE="${{ inputs.pr-title-template }}"
         TITLE="${TITLE//\{mode\}/${{ inputs.mode }}}"
         TITLE="${TITLE//\{repository\}/${{ inputs.repository }}}"
         TITLE="${TITLE//\{short_sha\}/${{ steps.validate-sha.outputs.short-sha }}}"
         echo "title=$TITLE" >> $GITHUB_OUTPUT
-        
+
         # Prepare labels
         LABELS="${{ inputs.labels }}"
         LABELS="${LABELS//\{mode\}/${{ inputs.mode }}}"
         echo "labels=$LABELS" >> $GITHUB_OUTPUT
-        
+
         # Prepare body
         BODY="${{ inputs.pr-body-template }}"
         BODY="${BODY//\{repository\}/${{ inputs.repository }}}"
         BODY="${BODY//\{resolved_sha\}/${{ steps.validate-sha.outputs.resolved-sha }}}"
         BODY="${BODY//\{pack_command\}/pnpm pack}"
         BODY="${BODY//\{last_sha\}/${{ steps.validate-sha.outputs.last-sha }}}"
-        
+
         # Handle commit messages separately due to multiline nature
         COMMIT_MESSAGES="${{ steps.commit-log.outputs.commit-messages }}"
         BODY="${BODY//\{commit_messages\}/$COMMIT_MESSAGES}"
-        
+
         echo "body<<EOF" >> $GITHUB_OUTPUT
         echo "$BODY" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
