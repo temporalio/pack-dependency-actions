@@ -1,0 +1,87 @@
+name: 'Validate SHA'
+description: 'Resolve and validate commit SHA with rollback protection'
+
+inputs:
+  repository:
+    description: 'Repository (owner/name)'
+    required: true
+  target-sha:
+    description: 'Commit SHA or branch name'
+    required: false
+  file-path:
+    description: 'Path to version file'
+    required: false
+    default: '.sha'
+  allow-rollback:
+    description: 'Allow older commits'
+    required: false
+    default: 'false'
+
+outputs:
+  resolved-sha:
+    description: 'Full resolved SHA'
+    value: ${{ steps.resolve.outputs.resolved-sha }}
+  short-sha:
+    description: 'Short SHA (8 chars)'
+    value: ${{ steps.resolve.outputs.short-sha }}
+  last-sha:
+    description: 'Previous SHA from file'
+    value: ${{ steps.resolve.outputs.last-sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve and validate SHA
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        REPOSITORY="${{ inputs.repository }}"
+        TARGET_SHA="${{ inputs.target-sha }}"
+        FILE_PATH="${{ inputs.file-path }}"
+        ALLOW_ROLLBACK="${{ inputs.allow-rollback }}"
+        
+        # Read last SHA from file
+        LAST_SHA=""
+        if [ -f "$FILE_PATH" ]; then
+          LAST_SHA=$(grep -v '^#' "$FILE_PATH" | grep -E '^[a-f0-9]{40}$' | head -1 || echo "")
+          echo "Previous SHA: ${LAST_SHA:-none}"
+        fi
+        echo "last-sha=$LAST_SHA" >> $GITHUB_OUTPUT
+        
+        # Resolve target SHA
+        if [ -z "$TARGET_SHA" ]; then
+          echo "Fetching latest from $REPOSITORY..."
+          DEFAULT_BRANCH=$(gh api "repos/$REPOSITORY" --jq '.default_branch')
+          RESOLVED_SHA=$(gh api "repos/$REPOSITORY/commits/$DEFAULT_BRANCH" --jq '.sha')
+        else
+          # Check if it's a branch or SHA
+          if [[ "$TARGET_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
+            RESOLVED_SHA="$TARGET_SHA"
+          else
+            echo "Resolving branch $TARGET_SHA..."
+            RESOLVED_SHA=$(gh api "repos/$REPOSITORY/commits/$TARGET_SHA" --jq '.sha')
+          fi
+        fi
+        
+        SHORT_SHA="${RESOLVED_SHA:0:8}"
+        echo "Resolved SHA: $RESOLVED_SHA (short: $SHORT_SHA)"
+        echo "resolved-sha=$RESOLVED_SHA" >> $GITHUB_OUTPUT
+        echo "short-sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+        
+        # Check for rollback
+        if [ -n "$LAST_SHA" ] && [ "$ALLOW_ROLLBACK" != "true" ]; then
+          LAST_DATE=$(gh api "repos/$REPOSITORY/commits/$LAST_SHA" --jq '.commit.committer.date')
+          NEW_DATE=$(gh api "repos/$REPOSITORY/commits/$RESOLVED_SHA" --jq '.commit.committer.date')
+          
+          if [[ "$NEW_DATE" < "$LAST_DATE" ]]; then
+            echo "❌ Target commit is older than last merged commit"
+            echo "   Last: $LAST_SHA @ $LAST_DATE"
+            echo "   New:  $RESOLVED_SHA @ $NEW_DATE"
+            echo "   Set allow-rollback=true to proceed"
+            exit 1
+          fi
+        fi
+        
+        echo "✅ SHA validation passed"

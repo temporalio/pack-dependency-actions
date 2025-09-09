@@ -1,40 +1,40 @@
 name: 'Generate Dependency PR'
-description: 'Generates a PR with packed dependencies from source repositories (composed from pack and create-pr actions)'
+description: 'Generate a PR with packed dependencies'
+
 inputs:
   repository:
     description: 'Source repository (owner/name)'
     required: true
   target-sha:
-    description: 'Target commit SHA or branch name'
+    description: 'Target commit SHA or branch'
     required: false
-    default: ''
   package-name:
-    description: 'Name of the package in package.json'
+    description: 'Package name in package.json'
     required: false
   pack-destination:
-    description: 'Directory where packed files will be placed'
+    description: 'Directory for packed files'
     required: false
     default: './packs'
   package-command:
-    description: 'Build/package command to run before packing'
+    description: 'Build command before packing'
     required: false
   pack-command:
-    description: 'Custom pack command (overrides default pnpm pack)'
+    description: 'Custom pack command'
     required: false
   file-path:
-    description: 'Path to version file (.ui-sha, .registry-sha, etc)'
+    description: 'Version file path'
     required: false
-    default: '.ui-sha'
-  mode:
-    description: 'PR mode (test or release)'
+    default: '.sha'
+  allow-rollback:
+    description: 'Allow older commits'
     required: false
-    default: 'test'
+    default: 'false'
   pr-title-template:
-    description: 'Template for PR title'
+    description: 'PR title template'
     required: false
     default: 'Update {repository} to {short_sha}'
   pr-body-template:
-    description: 'Template for PR body'
+    description: 'PR body template'
     required: false
     default: |
       ## Updates {repository} to {short_sha}
@@ -44,54 +44,133 @@ inputs:
       ### Changelog
       {changelog}
   labels:
-    description: 'Comma-separated list of labels'
+    description: 'PR labels'
     required: false
-    default: ''
   draft:
-    description: 'Create as draft PR (true/false/always-true)'
+    description: 'Create as draft'
     required: false
-    default: 'false'
+    default: 'true'
   token:
     description: 'GitHub token'
     required: true
+
 outputs:
   pull-request-number:
-    description: 'The pull request number'
+    description: 'PR number'
     value: ${{ steps.create-pr.outputs.pull-request-number }}
   pull-request-url:
-    description: 'The pull request URL'
+    description: 'PR URL'
     value: ${{ steps.create-pr.outputs.pull-request-url }}
 
 runs:
-  using: 'composite'
+  using: composite
   steps:
-    - name: Checkout code
+    - name: Checkout
       uses: actions/checkout@v4
-      
-    - name: Pack Dependency
-      id: pack
-      uses: temporalio/pack-dependency-actions/pack-dependency@main
+
+    - name: Validate SHA
+      id: validate
+      uses: temporalio/pack-dependency-actions/validate-sha@main
       with:
         repository: ${{ inputs.repository }}
         target-sha: ${{ inputs.target-sha }}
-        package-name: ${{ inputs.package-name }}
+        file-path: ${{ inputs.file-path }}
+        allow-rollback: ${{ inputs.allow-rollback }}
+
+    - name: Download source
+      uses: temporalio/pack-dependency-actions/download-source@main
+      with:
+        repository: ${{ inputs.repository }}
+        sha: ${{ steps.validate.outputs.resolved-sha }}
+        token: ${{ inputs.token }}
+
+    - name: Build and pack
+      id: pack
+      uses: temporalio/pack-dependency-actions/build-and-pack@main
+      with:
+        source-path: source
         pack-destination: ${{ inputs.pack-destination }}
         package-command: ${{ inputs.package-command }}
         pack-command: ${{ inputs.pack-command }}
-        file-path: ${{ inputs.file-path }}
-        token: ${{ inputs.token }}
+        package-name: ${{ inputs.package-name }}
+        sha: ${{ steps.validate.outputs.resolved-sha }}
 
-    - name: Create PR
-      id: create-pr
-      uses: temporalio/pack-dependency-actions/create-pr@main
+    - name: Update version file
+      shell: bash
+      run: |
+        echo "# SHA of the last packed version" > ${{ inputs.file-path }}
+        echo "${{ steps.validate.outputs.resolved-sha }}" >> ${{ inputs.file-path }}
+
+    - name: Update package.json
+      if: inputs.package-name != ''
+      shell: bash
+      run: |
+        PACKAGE_NAME="${{ inputs.package-name }}"
+        PACKAGE_FILE="${{ steps.pack.outputs.package-file }}"
+        
+        echo "Updating package.json to reference $PACKAGE_FILE"
+        cat package.json | jq ".dependencies[\"$PACKAGE_NAME\"] = \"file:$PACKAGE_FILE\"" > package.json.tmp
+        mv package.json.tmp package.json
+
+    - name: Generate changelog
+      id: changelog
+      uses: temporalio/pack-dependency-actions/generate-changelog@main
       with:
         repository: ${{ inputs.repository }}
-        short-sha: ${{ steps.pack.outputs.short-sha }}
-        full-sha: ${{ steps.pack.outputs.full-sha }}
-        changelog: ${{ steps.pack.outputs.changelog }}
-        mode: ${{ inputs.mode }}
-        pr-title-template: ${{ inputs.pr-title-template }}
-        pr-body-template: ${{ inputs.pr-body-template }}
+        from-sha: ${{ steps.validate.outputs.last-sha }}
+        to-sha: ${{ steps.validate.outputs.resolved-sha }}
+        format: markdown
+
+    - name: Prepare PR
+      id: prepare
+      shell: bash
+      run: |
+        # Prepare variables
+        REPOSITORY="${{ inputs.repository }}"
+        SHORT_SHA="${{ steps.validate.outputs.short-sha }}"
+        FULL_SHA="${{ steps.validate.outputs.resolved-sha }}"
+        CHANGELOG="${{ steps.changelog.outputs.changelog }}"
+        
+        # Generate branch name
+        REPO_NAME=$(echo "$REPOSITORY" | cut -d'/' -f2)
+        BRANCH="update-${REPO_NAME}-${SHORT_SHA}"
+        echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+        
+        # Process title
+        TITLE="${{ inputs.pr-title-template }}"
+        TITLE="${TITLE//\{repository\}/$REPOSITORY}"
+        TITLE="${TITLE//\{short_sha\}/$SHORT_SHA}"
+        TITLE="${TITLE//\{full_sha\}/$FULL_SHA}"
+        echo "title=$TITLE" >> $GITHUB_OUTPUT
+        
+        # Process body
+        BODY="${{ inputs.pr-body-template }}"
+        BODY="${BODY//\{repository\}/$REPOSITORY}"
+        BODY="${BODY//\{short_sha\}/$SHORT_SHA}"
+        BODY="${BODY//\{full_sha\}/$FULL_SHA}"
+        BODY="${BODY//\{changelog\}/$CHANGELOG}"
+        
+        echo "body<<EOF" >> $GITHUB_OUTPUT
+        echo "$BODY" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Clean up source
+      shell: bash
+      run: rm -rf source source.tar.gz
+
+    - name: Create pull request
+      id: create-pr
+      uses: peter-evans/create-pull-request@v7
+      with:
+        token: ${{ inputs.token }}
+        branch: ${{ steps.prepare.outputs.branch }}
+        title: ${{ steps.prepare.outputs.title }}
+        body: ${{ steps.prepare.outputs.body }}
         labels: ${{ inputs.labels }}
         draft: ${{ inputs.draft }}
-        token: ${{ inputs.token }}
+        commit-message: 'chore: update ${{ inputs.repository }} to ${{ steps.validate.outputs.short-sha }}'
+        add-paths: |
+          package.json
+          pnpm-lock.yaml
+          ${{ inputs.pack-destination }}
+          ${{ inputs.file-path }}

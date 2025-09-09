@@ -1,0 +1,87 @@
+name: 'Generate Changelog'
+description: 'Generate commit changelog between two SHAs'
+
+inputs:
+  repository:
+    description: 'Repository (owner/name)'
+    required: true
+  from-sha:
+    description: 'Starting SHA (exclusive)'
+    required: false
+  to-sha:
+    description: 'Ending SHA (inclusive)'
+    required: true
+  format:
+    description: 'Output format (markdown, table, simple)'
+    required: false
+    default: 'markdown'
+
+outputs:
+  changelog:
+    description: 'Formatted changelog'
+    value: ${{ steps.generate.outputs.changelog }}
+  commit-count:
+    description: 'Number of commits'
+    value: ${{ steps.generate.outputs.commit-count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Generate changelog
+      id: generate
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        REPOSITORY="${{ inputs.repository }}"
+        FROM_SHA="${{ inputs.from-sha }}"
+        TO_SHA="${{ inputs.to-sha }}"
+        FORMAT="${{ inputs.format }}"
+        
+        if [ -z "$FROM_SHA" ]; then
+          echo "No previous SHA, showing latest commit only"
+          COMMITS=$(gh api "repos/$REPOSITORY/commits/$TO_SHA" \
+            --jq '"- [\(.sha[0:8])](\(.html_url)) \(.commit.message | split("\n")[0])"')
+          COUNT=1
+        else
+          echo "Generating changelog from $FROM_SHA to $TO_SHA"
+          
+          # Get commit range
+          RESPONSE=$(gh api "repos/$REPOSITORY/compare/${FROM_SHA}...${TO_SHA}")
+          COUNT=$(echo "$RESPONSE" | jq '.total_commits')
+          
+          if [ "$FORMAT" = "table" ]; then
+            # Table format for PR body
+            COMMITS="| Commit | Author | Date | Message |
+|--------|--------|------|---------|"
+            COMMITS="$COMMITS
+$(echo "$RESPONSE" | jq -r '
+              .commits[] | 
+              "| [`\(.sha[0:7])`](https://github.com/'$REPOSITORY'/commit/\(.sha)) " +
+              "| ![@\(.author.login)](https://github.com/\(.author.login).png?size=20) @\(.author.login) " +
+              "| \(.commit.author.date | split("T")[0]) " +
+              "| \(.commit.message | split("\n")[0]) |"
+            ')"
+          elif [ "$FORMAT" = "simple" ]; then
+            # Simple format
+            COMMITS=$(echo "$RESPONSE" | jq -r '
+              .commits[] | 
+              "\(.sha[0:8]) \(.commit.message | split("\n")[0])"
+            ')
+          else
+            # Markdown list format (default)
+            COMMITS=$(echo "$RESPONSE" | jq -r '
+              .commits[] | 
+              "- [`\(.sha[0:8])`](https://github.com/'$REPOSITORY'/commit/\(.sha)) \(.commit.message | split("\n")[0])"
+            ')
+          fi
+        fi
+        
+        echo "Generated changelog with $COUNT commits"
+        
+        # Use heredoc for multiline output
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        echo "$COMMITS" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+        echo "commit-count=$COUNT" >> $GITHUB_OUTPUT

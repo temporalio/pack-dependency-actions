@@ -1,0 +1,116 @@
+name: 'Build and Pack'
+description: 'Build and pack a dependency with custom commands'
+
+inputs:
+  source-path:
+    description: 'Path to source code'
+    required: false
+    default: 'source'
+  pack-destination:
+    description: 'Directory for packed files'
+    required: false
+    default: './packs'
+  package-command:
+    description: 'Build command before packing'
+    required: false
+  pack-command:
+    description: 'Custom pack command'
+    required: false
+  package-name:
+    description: 'Package name for renaming'
+    required: false
+  sha:
+    description: 'SHA for file naming'
+    required: false
+  remove-prepare:
+    description: 'Remove prepare script'
+    required: false
+    default: 'true'
+
+outputs:
+  package-file:
+    description: 'Path to created package'
+    value: ${{ steps.pack.outputs.package-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare source
+      shell: bash
+      run: |
+        cd "${{ inputs.source-path }}"
+        
+        # Remove prepare script if requested
+        if [ "${{ inputs.remove-prepare }}" = "true" ] && [ -f "package.json" ]; then
+          echo "Removing prepare script..."
+          cat package.json | jq 'del(.scripts.prepare)' > package.json.tmp
+          mv package.json.tmp package.json
+        fi
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        cd "${{ inputs.source-path }}"
+        pnpm install --frozen-lockfile --ignore-scripts
+
+    - name: Build package
+      if: inputs.package-command != ''
+      shell: bash
+      run: |
+        cd "${{ inputs.source-path }}"
+        echo "Running: ${{ inputs.package-command }}"
+        eval "${{ inputs.package-command }}"
+
+    - name: Pack dependency
+      id: pack
+      shell: bash
+      run: |
+        SOURCE_PATH="${{ inputs.source-path }}"
+        PACK_DEST="${{ inputs.pack-destination }}"
+        PACKAGE_NAME="${{ inputs.package-name }}"
+        SHA="${{ inputs.sha }}"
+        
+        # Create pack destination
+        rm -rf "$PACK_DEST"
+        mkdir -p "$PACK_DEST"
+        
+        cd "$SOURCE_PATH"
+        
+        # Run pack command
+        if [ -n "${{ inputs.pack-command }}" ]; then
+          echo "Running: ${{ inputs.pack-command }}"
+          eval "${{ inputs.pack-command }}"
+        else
+          pnpm pack --pack-destination "../$PACK_DEST"
+        fi
+        
+        cd ..
+        
+        # Find and rename packed file
+        PACKED_FILE=$(ls -t "$PACK_DEST"/*.tgz | head -1)
+        
+        if [ -z "$PACKED_FILE" ]; then
+          echo "Error: No pack file created"
+          exit 1
+        fi
+        
+        # Rename with SHA if provided
+        if [ -n "$SHA" ]; then
+          if [ -n "$PACKAGE_NAME" ]; then
+            # Extract version
+            VERSION=$(basename "$PACKED_FILE" | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)\.tgz$/\1/')
+            CLEAN_NAME="${PACKAGE_NAME//[@\/]/-}"
+            CLEAN_NAME="${CLEAN_NAME#-}"
+            NEW_NAME="${CLEAN_NAME}-${VERSION}-${SHA:0:8}.tgz"
+          else
+            BASE_NAME=$(basename "$PACKED_FILE" .tgz)
+            NEW_NAME="${BASE_NAME}-${SHA:0:8}.tgz"
+          fi
+          
+          NEW_PATH="$PACK_DEST/$NEW_NAME"
+          mv "$PACKED_FILE" "$NEW_PATH"
+          echo "Renamed to: $NEW_NAME"
+          echo "package-file=$NEW_PATH" >> $GITHUB_OUTPUT
+        else
+          echo "package-file=$PACKED_FILE" >> $GITHUB_OUTPUT
+        fi
