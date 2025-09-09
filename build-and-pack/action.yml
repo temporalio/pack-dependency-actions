@@ -72,9 +72,10 @@ runs:
 
         # Store current directory
         ROOT_DIR=$(pwd)
-        
+
         # Create root pack destination
         mkdir -p "$ROOT_PACK_DEST"
+        rm -rf "$ROOT_PACK_DEST/*"
 
         cd "$SOURCE_PATH"
 
@@ -82,7 +83,7 @@ runs:
         if [ -n "${{ inputs.pack-command }}" ]; then
           echo "Running: ${{ inputs.pack-command }}"
           eval "${{ inputs.pack-command }}"
-          
+
           # The pack command should have created a .tgz file
           # Find it (could be in current dir or a subdirectory)
           PACKED_FILE=$(find . -name "*.tgz" -type f -mmin -1 | head -1)
@@ -98,7 +99,7 @@ runs:
         fi
 
         echo "Found packed file: $PACKED_FILE"
-        
+
         # Get the base filename
         PACKED_FILENAME=$(basename "$PACKED_FILE")
 
@@ -121,6 +122,6 @@ runs:
         # Move the packed file to root repo's packs directory
         FINAL_PATH="$ROOT_DIR/$ROOT_PACK_DEST/$NEW_NAME"
         mv "$PACKED_FILE" "$FINAL_PATH"
-        
+
         echo "Moved to: $FINAL_PATH"
         echo "package-file=$ROOT_PACK_DEST/$NEW_NAME" >> $GITHUB_OUTPUT
