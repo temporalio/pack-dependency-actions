@@ -366,16 +366,20 @@ runs:
           NEW_NAME="${BASE_NAME}-${SHORT_SHA}.tgz"
         fi
         
-        echo "Moving $CREATED_PACK to ../$PACK_DIR/$NEW_NAME"
+        echo "Moving $CREATED_PACK to ../$PACK_DIR/"
         
-        # Move and rename the file to the main repo's pack directory
-        mv "$CREATED_PACK" "../$PACK_DIR/$NEW_NAME"
-        
-        # Set the final package path
-        FINAL_PACKAGE="$PACK_DIR/$NEW_NAME"
+        # Move the file to the main repo's pack directory (keep original name for pnpm)
+        mv "$CREATED_PACK" "../$PACK_DIR/$CREATED_PACK"
         
         # Move to parent directory (main repo root)
         cd ..
+        
+        # Create a symlink with the SHA-based name for identification
+        ln -sf "$PACK_DIR/$CREATED_PACK" "$PACK_DIR/$NEW_NAME"
+        echo "Created symlink: $PACK_DIR/$NEW_NAME -> $CREATED_PACK"
+        
+        # Set the final package path to the original filename (what pnpm expects)
+        FINAL_PACKAGE="$PACK_DIR/$CREATED_PACK"
         
         echo "Pack file created: $FINAL_PACKAGE"
         ls -la "$PACK_DIR"
