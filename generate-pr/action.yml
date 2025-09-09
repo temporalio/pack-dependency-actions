@@ -415,8 +415,13 @@ runs:
         LABELS="${LABELS//\{mode\}/${{ inputs.mode }}}"
         echo "labels=$LABELS" >> $GITHUB_OUTPUT
 
-        # Prepare body
-        BODY="${{ inputs.pr-body-template }}"
+        # Prepare body - read template into variable using cat to preserve formatting
+        BODY=$(cat <<'TEMPLATE_EOF'
+${{ inputs.pr-body-template }}
+TEMPLATE_EOF
+        )
+        
+        # Replace placeholders
         BODY="${BODY//\{repository\}/${{ inputs.repository }}}"
         BODY="${BODY//\{resolved_sha\}/${{ steps.validate-sha.outputs.resolved-sha }}}"
         BODY="${BODY//\{pack_command\}/pnpm pack}"
