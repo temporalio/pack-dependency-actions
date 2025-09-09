@@ -113,7 +113,7 @@ jobs:
   check-ui-pack:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v0
+      - uses: actions/checkout@v4
       - uses: ./check-version
         with:
           file-path: '.ui-sha'
@@ -242,9 +242,9 @@ with:
 - Appropriate permissions for the GitHub token (contents: read, pull-requests: write)
 - Dependencies on external actions:
   - `actions/checkout@v0`
-  - `peter-evans/find-comment@v0`
-  - `peter-evans/create-or-update-comment@v0`
-  - `peter-evans/create-pull-request@v0`
+  - `peter-evans/find-comment@v3`
+  - `peter-evans/create-or-update-comment@v4`
+  - `peter-evans/create-pull-request@v7`
 
 ## Contributing
 
