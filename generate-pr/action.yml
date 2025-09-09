@@ -1,450 +1,97 @@
-name: 'Generate Update PR'
-description: 'Generate a PR to update packed dependencies with commit log'
-author: 'Your Organization'
-
+name: 'Generate Dependency PR'
+description: 'Generates a PR with packed dependencies from source repositories (composed from pack and create-pr actions)'
 inputs:
+  repository:
+    description: 'Source repository (owner/name)'
+    required: true
   target-sha:
-    description: 'Target commit SHA or branch name. Leave blank for latest'
+    description: 'Target commit SHA or branch name'
     required: false
     default: ''
-  allow-rollback:
-    description: 'Allow a commit older than the last merged SHA'
+  package-name:
+    description: 'Name of the package in package.json'
     required: false
-    default: 'false'
+  pack-destination:
+    description: 'Directory where packed files will be placed'
+    required: false
+    default: './packs'
+  package-command:
+    description: 'Build/package command to run before packing'
+    required: false
+  pack-command:
+    description: 'Custom pack command (overrides default pnpm pack)'
+    required: false
+  file-path:
+    description: 'Path to version file (.ui-sha, .registry-sha, etc)'
+    required: false
+    default: '.ui-sha'
   mode:
     description: 'PR mode (test or release)'
     required: false
     default: 'test'
-  file-path:
-    description: 'Path to version file'
-    required: false
-    default: '.ui-sha'
-  repository:
-    description: 'Source repository (owner/name)'
-    required: true
-  pack-destination:
-    description: 'Directory for packed files'
-    required: false
-    default: './packs'
-  pre-pack-commands:
-    description: 'Commands to run before packing (e.g., svelte-kit sync)'
-    required: false
-    default: ''
-  package-command:
-    description: 'Command to build the package before packing'
-    required: false
-    default: ''
-  pack-command:
-    description: 'Command to pack the package (default: pnpm pack)'
-    required: false
-    default: 'pnpm pack'
-  remove-prepare-script:
-    description: 'Remove prepare script from package.json'
-    required: false
-    default: 'true'
-  ignore-scripts:
-    description: 'Use --ignore-scripts when installing'
-    required: false
-    default: 'true'
-  package-name:
-    description: 'Name of the package being packed (for finding .tgz file)'
-    required: false
-    default: ''
   pr-title-template:
     description: 'Template for PR title'
     required: false
-    default: '{mode} {repository}@{short_sha}'
+    default: 'Update {repository} to {short_sha}'
   pr-body-template:
     description: 'Template for PR body'
     required: false
     default: |
-      This PR uses a local `.tgz` package built from `{repository}@{resolved_sha}`.
-      The `.tgz` was created with `pnpm pack` and installed directly. Use this pr to confirm the commit is functional.
-
-      ### 🧾 Changes in [`{repository}`](https://github.com/{repository})
-      **Commit range:** [`{last_sha}...{resolved_sha}`](https://github.com/{repository}/compare/{last_sha}...{resolved_sha})
-
-      {commit_messages}
+      ## Updates {repository} to {short_sha}
+      
+      Full SHA: {full_sha}
+      
+      ### Changelog
+      {changelog}
   labels:
-    description: 'Labels to add to PR'
+    description: 'Comma-separated list of labels'
     required: false
-    default: '{mode}-ui'
+    default: ''
   draft:
-    description: 'Create as draft PR (always-true, true, false)'
+    description: 'Create as draft PR (true/false/always-true)'
     required: false
-    default: 'always-true'
+    default: 'false'
   token:
     description: 'GitHub token'
-    required: false
-    default: ${{ github.token }}
-
+    required: true
 outputs:
-  pr-created:
-    description: 'Whether a PR was created'
-    value: ${{ steps.create-pr.outputs.pull-request-number != '' }}
-  pr-number:
-    description: 'PR number if created'
+  pull-request-number:
+    description: 'The pull request number'
     value: ${{ steps.create-pr.outputs.pull-request-number }}
-  pr-url:
-    description: 'PR URL if created'
+  pull-request-url:
+    description: 'The pull request URL'
     value: ${{ steps.create-pr.outputs.pull-request-url }}
-  resolved-sha:
-    description: 'Resolved commit SHA'
-    value: ${{ steps.validate-sha.outputs.resolved-sha }}
-  short-sha:
-    description: 'Short commit SHA'
-    value: ${{ steps.validate-sha.outputs.short-sha }}
-  last-sha:
-    description: 'Last merged SHA'
-    value: ${{ steps.validate-sha.outputs.last-sha }}
 
 runs:
   using: 'composite'
   steps:
-    - name: Validate and resolve SHA
-      id: validate-sha
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.token }}
-      run: |
-        FILE_PATH="${{ inputs.file-path }}"
-        REPO="${{ inputs.repository }}"
-        TARGET_SHA="${{ inputs.target-sha }}"
-        ALLOW_ROLLBACK="${{ inputs.allow-rollback }}"
-
-        # Get last merged SHA from file
-        LAST_SHA=""
-        if [ -f "$FILE_PATH" ]; then
-          echo "File $FILE_PATH exists, reading SHA..."
-          FILE_CONTENT=$(cat "$FILE_PATH" 2>/dev/null || echo "")
-          echo "Raw file content: '$FILE_CONTENT'"
-          LAST_SHA=$(echo "$FILE_CONTENT" | head -n 1 | tr -d '[:space:]')
-          echo "Processed LAST_SHA: '$LAST_SHA' (length=${#LAST_SHA})"
-          
-          # Validate SHA format
-          if [ -n "$LAST_SHA" ] && ! [[ "$LAST_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Warning: Invalid SHA format in file: '$LAST_SHA'"
-            LAST_SHA=""
-          fi
-        else
-          echo "File $FILE_PATH does not exist (first run)"
-        fi
-        echo "Setting output last-sha='$LAST_SHA'"
-        echo "last-sha=$LAST_SHA" >> $GITHUB_OUTPUT
-
-        # Resolve target SHA
-        if [ -z "$TARGET_SHA" ]; then
-          echo "Fetching latest commit from $REPO..."
-          echo "Running: gh api repos/$REPO --jq .default_branch"
-          
-          # Get the default branch first
-          DEFAULT_BRANCH=$(gh api repos/$REPO --jq .default_branch 2>&1)
-          API_EXIT_CODE=$?
-          
-          echo "API exit code: $API_EXIT_CODE"
-          echo "Raw API response: '$DEFAULT_BRANCH'"
-          echo "Response length: ${#DEFAULT_BRANCH}"
-          
-          if [ $API_EXIT_CODE -ne 0 ]; then
-            echo "Error: gh api command failed with exit code $API_EXIT_CODE"
-            echo "Error output: $DEFAULT_BRANCH"
-            exit 1
-          fi
-          
-          if [ -z "$DEFAULT_BRANCH" ]; then
-            echo "Error: Could not fetch default branch for $REPO (empty response)"
-            echo "Attempting to use 'main' as fallback..."
-            DEFAULT_BRANCH="main"
-          fi
-          
-          echo "Using branch: '$DEFAULT_BRANCH'"
-          echo "Running: gh api repos/$REPO/commits/$DEFAULT_BRANCH --jq .sha"
-          
-          RESOLVED_SHA=$(gh api repos/$REPO/commits/$DEFAULT_BRANCH --jq .sha 2>&1)
-          SHA_EXIT_CODE=$?
-          
-          echo "SHA API exit code: $SHA_EXIT_CODE"
-          echo "Raw SHA response: '$RESOLVED_SHA'"
-          
-          if [ $SHA_EXIT_CODE -ne 0 ]; then
-            echo "Error: Failed to get SHA for branch '$DEFAULT_BRANCH'"
-            echo "Error output: $RESOLVED_SHA"
-            exit 1
-          fi
-          
-          if [ -z "$RESOLVED_SHA" ]; then
-            echo "Error: Could not resolve SHA for branch $DEFAULT_BRANCH in $REPO (empty response)"
-            exit 1
-          fi
-        else
-          # Check if it's a branch name or SHA
-          if [[ "$TARGET_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
-            RESOLVED_SHA="$TARGET_SHA"
-          else
-            echo "Resolving branch $TARGET_SHA to SHA..."
-            RESOLVED_SHA=$(gh api repos/$REPO/commits/$TARGET_SHA --jq .sha)
-          fi
-        fi
-
-        echo "resolved-sha=$RESOLVED_SHA" >> $GITHUB_OUTPUT
-        echo "short-sha=${RESOLVED_SHA:0:8}" >> $GITHUB_OUTPUT
-
-        # Check if rollback without permission
-        echo "Checking rollback: LAST_SHA='$LAST_SHA' (length=${#LAST_SHA}), ALLOW_ROLLBACK='$ALLOW_ROLLBACK'"
-        if [ -n "$LAST_SHA" ] && [ ${#LAST_SHA} -gt 0 ] && [ "$ALLOW_ROLLBACK" != "true" ]; then
-          echo "LAST_SHA is not empty, comparing commit dates..."
-          echo "Getting date for LAST_SHA='$LAST_SHA'"
-          # Compare commit dates
-          LAST_DATE=$(gh api repos/$REPO/commits/$LAST_SHA --jq .commit.committer.date)
-          echo "Last commit date: $LAST_DATE"
-          echo "Getting date for RESOLVED_SHA='$RESOLVED_SHA'"
-          NEW_DATE=$(gh api repos/$REPO/commits/$RESOLVED_SHA --jq .commit.committer.date)
-          echo "New commit date: $NEW_DATE"
-
-          if [[ "$NEW_DATE" < "$LAST_DATE" ]]; then
-            echo "Error: Target commit is older than last merged commit. Set allow-rollback=true to proceed."
-            exit 1
-          fi
-        else
-          echo "Skipping rollback check (LAST_SHA is empty or ALLOW_ROLLBACK is true)"
-        fi
-
-        # Check if same as last SHA
-        if [ "$RESOLVED_SHA" = "$LAST_SHA" ]; then
-          echo "Target SHA is same as current. No update needed."
-          echo "needs-update=false" >> $GITHUB_OUTPUT
-        else
-          echo "needs-update=true" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Build commit log
-      if: steps.validate-sha.outputs.needs-update == 'true'
-      id: commit-log
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.token }}
-      run: |
-        REPO="${{ inputs.repository }}"
-        LAST_SHA="${{ steps.validate-sha.outputs.last-sha }}"
-        NEW_SHA="${{ steps.validate-sha.outputs.resolved-sha }}"
-
-        if [ -z "$LAST_SHA" ]; then
-          # First time setup, just show new commit
-          COMMITS=$(gh api repos/$REPO/commits/$NEW_SHA --jq '"- [" + .sha[0:8] + "](" + .html_url + ") " + .commit.message')
-        else
-          # Get commit range
-          COMMITS=$(gh api "repos/$REPO/compare/${LAST_SHA}...${NEW_SHA}" \
-            --jq '.commits[] | "- [" + .sha[0:8] + "](" + .html_url + ") " + (.commit.message | split("\n")[0])')
-        fi
-
-        echo "commit-messages<<EOF" >> $GITHUB_OUTPUT
-        echo "$COMMITS" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-
-    - name: Update SHA file
-      if: steps.validate-sha.outputs.needs-update == 'true'
-      shell: bash
-      run: |
-        echo "${{ steps.validate-sha.outputs.resolved-sha }}" > ${{ inputs.file-path }}
-
-    - name: Download and pack dependency
-      if: steps.validate-sha.outputs.needs-update == 'true'
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.token }}
-      run: |
-        REPO="${{ inputs.repository }}"
-        SHA="${{ steps.validate-sha.outputs.resolved-sha }}"
-        PACK_DIR="${{ inputs.pack-destination }}"
-        PACKAGE_NAME="${{ inputs.package-name }}"
-
-        # Reset packs directory
-        rm -rf "$PACK_DIR"
-        mkdir -p "$PACK_DIR"
-
-        # Download source as tarball
-        echo "Downloading $REPO@$SHA..."
-        
-        # Use curl with authentication header for private repos
-        curl -L \
-          -H "Authorization: Bearer $GITHUB_TOKEN" \
-          -H "Accept: application/vnd.github.v3+json" \
-          "https://api.github.com/repos/$REPO/tarball/$SHA" \
-          -o source.tar.gz
-        
-        # Check if download was successful
-        if [ ! -s source.tar.gz ]; then
-          echo "Error: Failed to download source tarball"
-          exit 1
-        fi
-        
-        # Check file size for debugging
-        echo "Downloaded file size: $(stat -f%z source.tar.gz 2>/dev/null || stat -c%s source.tar.gz) bytes"
-        
-        tar -xzf source.tar.gz
-
-        # Find extracted directory (GitHub creates it with a prefix like owner-repo-shortsha)
-        # We need to find it dynamically
-        SOURCE_DIR=$(ls -d */ | grep -E "^[^/]+-[^/]+-[0-9a-f]+/" | head -n 1 | sed 's|/$||')
-        
-        if [ -z "$SOURCE_DIR" ]; then
-          echo "Error: Could not find extracted source directory"
-          echo "Contents of current directory:"
-          ls -la
-          exit 1
-        fi
-        
-        echo "Using source directory: $SOURCE_DIR"
-
-        # Remove dependency from parent package.json if package name is provided
-        if [ -n "$PACKAGE_NAME" ] && [ -f "package.json" ]; then
-          echo "Removing $PACKAGE_NAME from parent package.json..."
-          cat package.json | jq "del(.dependencies[\"$PACKAGE_NAME\"])" > package.json.tmp
-          mv package.json.tmp package.json
-        fi
-
-        cd "$SOURCE_DIR"
-
-        # Remove prepare script if requested
-        if [ "${{ inputs.remove-prepare-script }}" = "true" ] && [ -f "package.json" ]; then
-          echo "Removing prepare script..."
-          cat package.json | jq 'del(.scripts.prepare)' > package.json.tmp
-          mv package.json.tmp package.json
-        fi
-
-        # Install dependencies
-        INSTALL_FLAGS=""
-        if [ "${{ inputs.ignore-scripts }}" = "true" ]; then
-          INSTALL_FLAGS="--ignore-scripts"
-        fi
-        echo "Installing dependencies..."
-        pnpm install $INSTALL_FLAGS
-
-        # Run pre-pack commands if provided
-        if [ -n "${{ inputs.pre-pack-commands }}" ]; then
-          echo "Running pre-pack commands..."
-          eval "${{ inputs.pre-pack-commands }}"
-        fi
-
-        # Save the full path to the source directory
-        SOURCE_PATH=$(pwd)
-        
-        # Run package command if provided
-        if [ -n "${{ inputs.package-command }}" ]; then
-          echo "Running package command..."
-          eval "${{ inputs.package-command }}"
-          echo "Current directory after package command: $(pwd)"
-          # Return to source root after package command
-          cd "$SOURCE_PATH"
-        fi
-
-        # Pack using the configured command
-        echo "Packing using: ${{ inputs.pack-command }}"
-        eval "${{ inputs.pack-command }}"
-        
-        # Return to source root after pack command (in case it changed directories)
-        cd "$SOURCE_PATH"
-        
-        # Find the created pack file in source root
-        CREATED_PACK=$(ls *.tgz 2>/dev/null | head -n 1)
-        
-        if [ -z "$CREATED_PACK" ]; then
-          echo "Error: No pack file was created"
-          exit 1
-        fi
-        
-        echo "Created pack file: $CREATED_PACK"
-        
-        # Rename the pack file with SHA
-        SHORT_SHA="${SHA:0:8}"
-        if [ -n "$PACKAGE_NAME" ]; then
-          # Use the provided package name
-          NEW_NAME="${PACKAGE_NAME}-${SHORT_SHA}.tgz"
-        else
-          # Extract base name from created pack file
-          BASE_NAME=$(echo "$CREATED_PACK" | sed 's/-[0-9].*\.tgz$//')
-          NEW_NAME="${BASE_NAME}-${SHORT_SHA}.tgz"
-        fi
-        
-        echo "Moving and renaming $CREATED_PACK to ../$PACK_DIR/$NEW_NAME"
-        
-        # Move and rename the file to the main repo's pack directory
-        mv "$CREATED_PACK" "../$PACK_DIR/$NEW_NAME"
-        
-        # Move to parent directory (main repo root)
-        cd ..
-        
-        # Set the final package path
-        FINAL_PACKAGE="$PACK_DIR/$NEW_NAME"
-        
-        echo "Pack file created: $FINAL_PACKAGE"
-        ls -la "$PACK_DIR"
-
-        # Clean up source directory
-        rm -rf "$SOURCE_DIR" source.tar.gz
-        
-        # Update package.json to reference the renamed pack file
-        if [ -n "$PACKAGE_NAME" ] && [ -n "$FINAL_PACKAGE" ]; then
-          echo "Updating package.json to reference $FINAL_PACKAGE"
-          # Update or add the dependency to point to the local pack file
-          cat package.json | jq ".dependencies[\"$PACKAGE_NAME\"] = \"file:$FINAL_PACKAGE\"" > package.json.tmp
-          mv package.json.tmp package.json
-          echo "Updated package.json with packed dependency"
-        fi
-        
-        echo "Pack file successfully created and renamed with SHA"
-
-    - name: Prepare PR details
-      if: steps.validate-sha.outputs.needs-update == 'true'
-      id: prepare-pr
-      shell: bash
-      run: |
-        # Prepare branch name
-        BRANCH_NAME="${{ inputs.mode }}-ui-${{ steps.validate-sha.outputs.short-sha }}"
-        echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
-
-        # Prepare title
-        TITLE="${{ inputs.pr-title-template }}"
-        TITLE="${TITLE//\{mode\}/${{ inputs.mode }}}"
-        TITLE="${TITLE//\{repository\}/${{ inputs.repository }}}"
-        TITLE="${TITLE//\{short_sha\}/${{ steps.validate-sha.outputs.short-sha }}}"
-        echo "title=$TITLE" >> $GITHUB_OUTPUT
-
-        # Prepare labels
-        LABELS="${{ inputs.labels }}"
-        LABELS="${LABELS//\{mode\}/${{ inputs.mode }}}"
-        echo "labels=$LABELS" >> $GITHUB_OUTPUT
-
-        # Prepare body - escape the template properly
-        BODY=$(printf '%s' "${{ inputs.pr-body-template }}")
-        
-        # Replace placeholders
-        BODY="${BODY//\{repository\}/${{ inputs.repository }}}"
-        BODY="${BODY//\{resolved_sha\}/${{ steps.validate-sha.outputs.resolved-sha }}}"
-        BODY="${BODY//\{pack_command\}/pnpm pack}"
-        BODY="${BODY//\{last_sha\}/${{ steps.validate-sha.outputs.last-sha }}}"
-
-        # Handle commit messages separately due to multiline nature
-        COMMIT_MESSAGES="${{ steps.commit-log.outputs.commit-messages }}"
-        BODY="${BODY//\{commit_messages\}/$COMMIT_MESSAGES}"
-
-        echo "body<<EOF" >> $GITHUB_OUTPUT
-        echo "$BODY" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-
-    - name: Create Pull Request
-      if: steps.validate-sha.outputs.needs-update == 'true'
-      id: create-pr
-      uses: peter-evans/create-pull-request@v7
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Pack Dependency
+      id: pack
+      uses: temporalio/pack-dependency-actions/pack-dependency@main
       with:
+        repository: ${{ inputs.repository }}
+        target-sha: ${{ inputs.target-sha }}
+        package-name: ${{ inputs.package-name }}
+        pack-destination: ${{ inputs.pack-destination }}
+        package-command: ${{ inputs.package-command }}
+        pack-command: ${{ inputs.pack-command }}
+        file-path: ${{ inputs.file-path }}
         token: ${{ inputs.token }}
-        reviewers: ${{ github.actor }}
-        committer: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
-        author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>
-        branch: ${{ steps.prepare-pr.outputs.branch }}
-        commit-message: 'chore: set ${{ inputs.repository }}@${{ steps.validate-sha.outputs.resolved-sha }}'
-        title: ${{ steps.prepare-pr.outputs.title }}
-        add-paths: 'package.json, pnpm-lock.yaml, ${{ inputs.pack-destination }}, ${{ inputs.file-path }}'
-        labels: ${{ steps.prepare-pr.outputs.labels }}
+
+    - name: Create PR
+      id: create-pr
+      uses: temporalio/pack-dependency-actions/create-pr@main
+      with:
+        repository: ${{ inputs.repository }}
+        short-sha: ${{ steps.pack.outputs.short-sha }}
+        full-sha: ${{ steps.pack.outputs.full-sha }}
+        changelog: ${{ steps.pack.outputs.changelog }}
+        mode: ${{ inputs.mode }}
+        pr-title-template: ${{ inputs.pr-title-template }}
+        pr-body-template: ${{ inputs.pr-body-template }}
+        labels: ${{ inputs.labels }}
         draft: ${{ inputs.draft }}
-        body: ${{ steps.prepare-pr.outputs.body }}
+        token: ${{ inputs.token }}

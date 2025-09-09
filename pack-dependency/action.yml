@@ -1,0 +1,45 @@
+name: 'Pack Dependency'
+description: 'Downloads, builds, and packs a dependency from a source repository'
+inputs:
+  repository:
+    description: 'Source repository (owner/name)'
+    required: true
+  target-sha:
+    description: 'Target commit SHA or branch name'
+    required: false
+    default: ''
+  package-name:
+    description: 'Name of the package in package.json'
+    required: false
+  pack-destination:
+    description: 'Directory where packed files will be placed'
+    required: false
+    default: './packs'
+  package-command:
+    description: 'Build/package command to run before packing'
+    required: false
+  pack-command:
+    description: 'Custom pack command (overrides default pnpm pack)'
+    required: false
+  file-path:
+    description: 'Path to version file (.ui-sha, .registry-sha, etc)'
+    required: false
+    default: '.ui-sha'
+  token:
+    description: 'GitHub token for accessing the repository'
+    required: true
+outputs:
+  short-sha:
+    description: 'Short SHA of the packed commit'
+  full-sha:
+    description: 'Full SHA of the packed commit'
+  package-file:
+    description: 'Path to the created package file'
+  last-sha:
+    description: 'SHA from the version file'
+  changelog:
+    description: 'Commit changelog between versions'
+
+runs:
+  using: 'node20'
+  main: 'index.js'
