@@ -81,10 +81,7 @@ jobs:
 
       - name: Update README examples
         run: |
-          # Update version references in README to use major version
-          sed -i "s|@v[0-9]\+|@${{ steps.version.outputs.major_version }}|g" README.md
-
-          # Update any specific version mentions in usage examples
+          # Only update pack-dependency-actions version references, not external actions
           sed -i "s|\(pack-dependency-actions/[^@]*\)@v[0-9]\+|\1@${{ steps.version.outputs.major_version }}|g" README.md
 
           # Check if changes were made
