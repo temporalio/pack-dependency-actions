@@ -39,7 +39,7 @@ runs:
       shell: bash
       run: |
         cd "${{ inputs.source-path }}"
-        
+
         # Remove prepare script if requested
         if [ "${{ inputs.remove-prepare }}" = "true" ] && [ -f "package.json" ]; then
           echo "Removing prepare script..."
@@ -66,51 +66,61 @@ runs:
       shell: bash
       run: |
         SOURCE_PATH="${{ inputs.source-path }}"
-        PACK_DEST="${{ inputs.pack-destination }}"
+        ROOT_PACK_DEST="${{ inputs.pack-destination }}"
         PACKAGE_NAME="${{ inputs.package-name }}"
         SHA="${{ inputs.sha }}"
+
+        # Store current directory
+        ROOT_DIR=$(pwd)
         
-        # Create pack destination
-        rm -rf "$PACK_DEST"
-        mkdir -p "$PACK_DEST"
-        
+        # Create root pack destination
+        mkdir -p "$ROOT_PACK_DEST"
+
         cd "$SOURCE_PATH"
-        
-        # Run pack command
+
+        # Run pack command (it will use its own pack destination)
         if [ -n "${{ inputs.pack-command }}" ]; then
           echo "Running: ${{ inputs.pack-command }}"
           eval "${{ inputs.pack-command }}"
+          
+          # The pack command should have created a .tgz file
+          # Find it (could be in current dir or a subdirectory)
+          PACKED_FILE=$(find . -name "*.tgz" -type f -mmin -1 | head -1)
         else
-          pnpm pack --pack-destination "../$PACK_DEST"
+          # Default: use pnpm pack to current directory
+          pnpm pack
+          PACKED_FILE=$(ls -t *.tgz | head -1)
         fi
-        
-        cd ..
-        
-        # Find and rename packed file
-        PACKED_FILE=$(ls -t "$PACK_DEST"/*.tgz | head -1)
-        
+
         if [ -z "$PACKED_FILE" ]; then
           echo "Error: No pack file created"
           exit 1
         fi
+
+        echo "Found packed file: $PACKED_FILE"
         
-        # Rename with SHA if provided
+        # Get the base filename
+        PACKED_FILENAME=$(basename "$PACKED_FILE")
+
+        # Construct new filename with SHA
         if [ -n "$SHA" ]; then
           if [ -n "$PACKAGE_NAME" ]; then
-            # Extract version
-            VERSION=$(basename "$PACKED_FILE" | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)\.tgz$/\1/')
+            # Use provided package name
             CLEAN_NAME="${PACKAGE_NAME//[@\/]/-}"
             CLEAN_NAME="${CLEAN_NAME#-}"
-            NEW_NAME="${CLEAN_NAME}-${VERSION}-${SHA:0:8}.tgz"
+            NEW_NAME="${CLEAN_NAME}-${SHA:0:8}.tgz"
           else
-            BASE_NAME=$(basename "$PACKED_FILE" .tgz)
+            # Extract package name from filename and add SHA
+            BASE_NAME="${PACKED_FILENAME%.tgz}"
             NEW_NAME="${BASE_NAME}-${SHA:0:8}.tgz"
           fi
-          
-          NEW_PATH="$PACK_DEST/$NEW_NAME"
-          mv "$PACKED_FILE" "$NEW_PATH"
-          echo "Renamed to: $NEW_NAME"
-          echo "package-file=$NEW_PATH" >> $GITHUB_OUTPUT
         else
-          echo "package-file=$PACKED_FILE" >> $GITHUB_OUTPUT
+          NEW_NAME="$PACKED_FILENAME"
         fi
+
+        # Move the packed file to root repo's packs directory
+        FINAL_PATH="$ROOT_DIR/$ROOT_PACK_DEST/$NEW_NAME"
+        mv "$PACKED_FILE" "$FINAL_PATH"
+        
+        echo "Moved to: $FINAL_PATH"
+        echo "package-file=$ROOT_PACK_DEST/$NEW_NAME" >> $GITHUB_OUTPUT
