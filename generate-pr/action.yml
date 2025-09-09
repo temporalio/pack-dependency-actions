@@ -415,11 +415,8 @@ runs:
         LABELS="${LABELS//\{mode\}/${{ inputs.mode }}}"
         echo "labels=$LABELS" >> $GITHUB_OUTPUT
 
-        # Prepare body - read template into variable using cat to preserve formatting
-        BODY=$(cat <<'TEMPLATE_EOF'
-${{ inputs.pr-body-template }}
-TEMPLATE_EOF
-        )
+        # Prepare body - escape the template properly
+        BODY=$(printf '%s' "${{ inputs.pr-body-template }}")
         
         # Replace placeholders
         BODY="${BODY//\{repository\}/${{ inputs.repository }}}"
