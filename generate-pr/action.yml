@@ -386,7 +386,10 @@ runs:
         # Install the packed dependency
         if [ -n "$FINAL_PACKAGE" ]; then
           echo "Installing packed dependency: $FINAL_PACKAGE"
-          pnpm add "$FINAL_PACKAGE"
+          # Use absolute path for pnpm add to avoid confusion
+          ABSOLUTE_PACK_PATH="$(pwd)/$FINAL_PACKAGE"
+          echo "Using absolute path: $ABSOLUTE_PACK_PATH"
+          pnpm add "file:$ABSOLUTE_PACK_PATH"
           pnpm install
         else
           echo "Warning: No packed file found"
