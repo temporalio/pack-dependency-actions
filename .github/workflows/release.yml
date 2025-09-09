@@ -69,7 +69,7 @@ jobs:
           sed -i "s|@v[0-9]\+|@${{ steps.version.outputs.major_version }}|g" README.md
           
           # Update any specific version mentions in usage examples
-          sed -i "s|pack-dependency-actions/[^@]*@v[0-9]\+|pack-dependency-actions/\1@${{ steps.version.outputs.major_version }}|g" README.md
+          sed -i "s|\(pack-dependency-actions/[^@]*\)@v[0-9]\+|\1@${{ steps.version.outputs.major_version }}|g" README.md
           
           # Check if changes were made
           if git diff --quiet; then
