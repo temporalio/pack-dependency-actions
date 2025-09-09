@@ -246,6 +246,8 @@ runs:
     - name: Download and pack dependency
       if: steps.validate-sha.outputs.needs-update == 'true'
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
       run: |
         REPO="${{ inputs.repository }}"
         SHA="${{ steps.validate-sha.outputs.resolved-sha }}"
@@ -258,12 +260,37 @@ runs:
 
         # Download source as tarball
         echo "Downloading $REPO@$SHA..."
-        curl -L "https://github.com/$REPO/archive/$SHA.tar.gz" -o source.tar.gz
+        
+        # Use curl with authentication header for private repos
+        curl -L \
+          -H "Authorization: Bearer $GITHUB_TOKEN" \
+          -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/repos/$REPO/tarball/$SHA" \
+          -o source.tar.gz
+        
+        # Check if download was successful
+        if [ ! -s source.tar.gz ]; then
+          echo "Error: Failed to download source tarball"
+          exit 1
+        fi
+        
+        # Check file size for debugging
+        echo "Downloaded file size: $(stat -f%z source.tar.gz 2>/dev/null || stat -c%s source.tar.gz) bytes"
+        
         tar -xzf source.tar.gz
 
-        # Find extracted directory (GitHub creates it as repo-name-sha)
-        REPO_NAME=$(echo "$REPO" | cut -d'/' -f2)
-        SOURCE_DIR="${REPO_NAME}-${SHA}"
+        # Find extracted directory (GitHub creates it with a prefix like owner-repo-shortsha)
+        # We need to find it dynamically
+        SOURCE_DIR=$(ls -d */ | grep -E "^[^/]+-[^/]+-[0-9a-f]+/" | head -n 1 | sed 's|/$||')
+        
+        if [ -z "$SOURCE_DIR" ]; then
+          echo "Error: Could not find extracted source directory"
+          echo "Contents of current directory:"
+          ls -la
+          exit 1
+        fi
+        
+        echo "Using source directory: $SOURCE_DIR"
 
         # Remove dependency from parent package.json if package name is provided
         if [ -n "$PACKAGE_NAME" ] && [ -f "package.json" ]; then
