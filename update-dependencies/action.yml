@@ -1,0 +1,97 @@
+name: 'Update Dependencies'
+description: 'Uninstall old packages and install new packed versions'
+
+inputs:
+  package-names:
+    description: 'Comma-separated list of package names to update (e.g., "@temporalio/ui,@temporal-workers/registry")'
+    required: true
+  pack-files:
+    description: 'Comma-separated list of corresponding pack files to install (e.g., "./packs/ui-abc123.tgz,./packs/registry-def456.tgz")'
+    required: true
+  package-manager:
+    description: 'Package manager to use (npm, pnpm, yarn)'
+    required: false
+    default: 'pnpm'
+
+runs:
+  using: composite
+  steps:
+    - name: Update dependencies
+      shell: bash
+      run: |
+        PACKAGE_NAMES="${{ inputs.package-names }}"
+        PACK_FILES="${{ inputs.pack-files }}"
+        PKG_MANAGER="${{ inputs.package-manager }}"
+        
+        # Convert comma-separated strings to arrays
+        IFS=',' read -ra PACKAGES <<< "$PACKAGE_NAMES"
+        IFS=',' read -ra PACKS <<< "$PACK_FILES"
+        
+        # Verify same number of packages and pack files
+        if [ ${#PACKAGES[@]} -ne ${#PACKS[@]} ]; then
+          echo "Error: Number of packages doesn't match number of pack files"
+          echo "Packages: ${#PACKAGES[@]}, Pack files: ${#PACKS[@]}"
+          exit 1
+        fi
+        
+        # Remove old dependencies from package.json
+        echo "Removing old dependencies from package.json..."
+        for package in "${PACKAGES[@]}"; do
+          # Trim whitespace
+          package=$(echo "$package" | xargs)
+          echo "  Removing: $package"
+          
+          # Use jq to remove the dependency
+          cat package.json | jq "del(.dependencies[\"$package\"])" > package.json.tmp
+          mv package.json.tmp package.json
+          
+          # Also check devDependencies
+          cat package.json | jq "del(.devDependencies[\"$package\"])" > package.json.tmp
+          mv package.json.tmp package.json
+        done
+        
+        # Install new packed versions
+        echo "Installing new packed versions..."
+        for i in "${!PACKAGES[@]}"; do
+          package="${PACKAGES[$i]}"
+          pack_file="${PACKS[$i]}"
+          
+          # Trim whitespace
+          package=$(echo "$package" | xargs)
+          pack_file=$(echo "$pack_file" | xargs)
+          
+          echo "  Installing: $package from $pack_file"
+          
+          # Install using appropriate package manager
+          case "$PKG_MANAGER" in
+            npm)
+              npm install "$pack_file"
+              ;;
+            pnpm)
+              pnpm add "$pack_file"
+              ;;
+            yarn)
+              yarn add "$pack_file"
+              ;;
+            *)
+              echo "Error: Unknown package manager: $PKG_MANAGER"
+              exit 1
+              ;;
+          esac
+        done
+        
+        # Final install to ensure all dependencies are resolved
+        echo "Running final install to resolve all dependencies..."
+        case "$PKG_MANAGER" in
+          npm)
+            npm install
+            ;;
+          pnpm)
+            pnpm install
+            ;;
+          yarn)
+            yarn install
+            ;;
+        esac
+        
+        echo "✅ Dependencies updated successfully"

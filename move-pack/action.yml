@@ -41,9 +41,10 @@ runs:
 
         # Store current directory
         ROOT_DIR=$(pwd)
-        
+
         # Create root pack destination
         mkdir -p "$ROOT_PACK_DEST"
+        rm -rf "$ROOT_PACK_DEST"/*
 
         cd "$SOURCE_PATH"
 
@@ -56,7 +57,7 @@ runs:
         fi
 
         echo "Found packed file: $PACKED_FILE"
-        
+
         # Get the base filename
         PACKED_FILENAME=$(basename "$PACKED_FILE")
 
@@ -79,6 +80,6 @@ runs:
         # Move the packed file to root repo's packs directory
         FINAL_PATH="$ROOT_DIR/$ROOT_PACK_DEST/$NEW_NAME"
         mv "$PACKED_FILE" "$FINAL_PATH"
-        
+
         echo "Moved to: $FINAL_PATH"
         echo "package-file=$ROOT_PACK_DEST/$NEW_NAME" >> $GITHUB_OUTPUT
