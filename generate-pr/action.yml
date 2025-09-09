@@ -339,14 +339,19 @@ runs:
         if [[ "$CURRENT_DIR" == *"/packages/"* ]]; then
           # We're in a subdirectory, adjust the path
           echo "Packing from subdirectory: $CURRENT_DIR"
-          # Go back to the repository root to ensure consistent paths
-          DEPTH=$(echo "$CURRENT_DIR" | grep -o '/packages/.*' | tr -cd '/' | wc -c)
+          # We need to go up from packages/xxx to get out of the source directory
+          # Count the depth from the source directory root
+          RELATIVE_PATH="${CURRENT_DIR#$ORIGINAL_DIR/}"
+          DEPTH=$(echo "$RELATIVE_PATH" | tr -cd '/' | wc -c)
+          # Add 1 more to get out of the source directory itself
+          DEPTH=$((DEPTH + 1))
+          
           PACK_PATH=""
           for ((i=0; i<$DEPTH; i++)); do
             PACK_PATH="../$PACK_PATH"
           done
           PACK_PATH="${PACK_PATH}$PACK_DIR"
-          echo "Pack destination: $PACK_PATH"
+          echo "Pack destination: $PACK_PATH (depth=$DEPTH from $RELATIVE_PATH)"
           pnpm pack --pack-destination "$PACK_PATH"
         else
           # We're in the source root
