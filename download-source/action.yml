@@ -36,13 +36,16 @@ runs:
 
         echo "Downloading $REPOSITORY@$SHA..."
 
-        # Use API for private repos, direct URL for public
+        # Use API with token if provided, otherwise use public download
+        if [ -n "${{ inputs.token }}" ]; then
+          echo "Using authenticated download..."
           curl -L \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/$REPOSITORY/tarball/$SHA" \
             -o source.tar.gz
         else
+          echo "Using public download..."
           curl -L "https://github.com/$REPOSITORY/archive/$SHA.tar.gz" -o source.tar.gz
         fi
 
