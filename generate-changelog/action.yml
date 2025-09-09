@@ -52,9 +52,10 @@ runs:
           
           if [ "$FORMAT" = "table" ]; then
             # Table format for PR body
-            COMMITS="| Commit | Author | Date | Message |"$'\n'"|--------|--------|------|---------|"
+            COMMITS="| Commit | Author | Date | Message |
+        |--------|--------|------|---------|"
             COMMITS="$COMMITS
-$(echo "$RESPONSE" | jq -r '
+        $(echo "$RESPONSE" | jq -r '
               .commits[] | 
               "| [`\(.sha[0:7])`](https://github.com/'$REPOSITORY'/commit/\(.sha)) " +
               "| ![@\(.author.login)](https://github.com/\(.author.login).png?size=20) @\(.author.login) " +
