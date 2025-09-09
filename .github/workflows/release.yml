@@ -20,19 +20,19 @@ jobs:
         id: version
         run: |
           VERSION="${{ github.event.release.tag_name }}"
-          
+
           # Ensure version starts with 'v'
           if [[ ! "$VERSION" =~ ^v ]]; then
             VERSION="v$VERSION"
           fi
-          
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
-          
+
           # Extract major version for tagging
           MAJOR_VERSION=$(echo "$VERSION" | grep -oE '^v[0-9]+')
           echo "major_version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
-          
+
           echo "Released version: $VERSION"
           echo "Major version tag: $MAJOR_VERSION"
 
@@ -40,21 +40,37 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email github-actions[bot]@users.noreply.github.com
-          
+
           # Force update the major version tag to point to the release tag
           git tag -f ${{ steps.version.outputs.major_version }} ${{ steps.version.outputs.version }}
           git push origin ${{ steps.version.outputs.major_version }} --force
-          
+
           echo "✅ Updated ${{ steps.version.outputs.major_version }} tag to point to ${{ steps.version.outputs.version }}"
 
   update-readme:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main branch
+
+      - name: Generate token
+        id: generate_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.TEMPORAL_CICD_APP_ID }}
+          private-key: ${{ secrets.TEMPORAL_CICD_PRIVATE_KEY }}
+
+      - name: Checkout ui-server
         uses: actions/checkout@v4
         with:
           ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.generate_token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          echo ${{ steps.generate_token.outputs.token }} | gh auth login --with-token
+          gh auth status -a
+          git config --global user.name "temporal-cicd[bot]"
+          git config --global user.email "gh-action@users.noreply.github.com"
 
       - name: Extract version info
         id: version
@@ -67,10 +83,10 @@ jobs:
         run: |
           # Update version references in README to use major version
           sed -i "s|@v[0-9]\+|@${{ steps.version.outputs.major_version }}|g" README.md
-          
+
           # Update any specific version mentions in usage examples
           sed -i "s|\(pack-dependency-actions/[^@]*\)@v[0-9]\+|\1@${{ steps.version.outputs.major_version }}|g" README.md
-          
+
           # Check if changes were made
           if git diff --quiet; then
             echo "No changes needed in README"
@@ -94,23 +110,23 @@ jobs:
           script: |
             const version = '${{ github.event.release.tag_name }}';
             const majorVersion = version.match(/^v\d+/)[0];
-            
+
             const comment = `## 🎉 Release ${version} Published!
-            
+
             ### ✅ Post-release tasks completed:
             - Updated ${majorVersion} tag to point to ${version}
             - Updated README examples to use ${majorVersion}
-            
+
             ### 📦 Actions available at:
             - \`${{ github.repository }}/check-version@${majorVersion}\`
             - \`${{ github.repository }}/version-sweep@${majorVersion}\`
             - \`${{ github.repository }}/generate-pr@${majorVersion}\`
             - \`${{ github.repository }}/auto-delete@${majorVersion}\`
-            
+
             Users can now reference this release using either:
             - Full version: \`@${version}\`
             - Major version: \`@${majorVersion}\` (recommended for automatic updates)`;
-            
+
             github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
