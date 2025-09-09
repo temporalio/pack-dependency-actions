@@ -366,38 +366,33 @@ runs:
           NEW_NAME="${BASE_NAME}-${SHORT_SHA}.tgz"
         fi
         
-        echo "Moving $CREATED_PACK to ../$PACK_DIR/"
+        echo "Moving and renaming $CREATED_PACK to ../$PACK_DIR/$NEW_NAME"
         
-        # Move the file to the main repo's pack directory (keep original name for pnpm)
-        mv "$CREATED_PACK" "../$PACK_DIR/$CREATED_PACK"
+        # Move and rename the file to the main repo's pack directory
+        mv "$CREATED_PACK" "../$PACK_DIR/$NEW_NAME"
         
         # Move to parent directory (main repo root)
         cd ..
         
-        # Create a symlink with the SHA-based name for identification
-        ln -sf "$PACK_DIR/$CREATED_PACK" "$PACK_DIR/$NEW_NAME"
-        echo "Created symlink: $PACK_DIR/$NEW_NAME -> $CREATED_PACK"
-        
-        # Set the final package path to the original filename (what pnpm expects)
-        FINAL_PACKAGE="$PACK_DIR/$CREATED_PACK"
+        # Set the final package path
+        FINAL_PACKAGE="$PACK_DIR/$NEW_NAME"
         
         echo "Pack file created: $FINAL_PACKAGE"
         ls -la "$PACK_DIR"
 
         # Clean up source directory
         rm -rf "$SOURCE_DIR" source.tar.gz
-
-        # Install the packed dependency
-        if [ -n "$FINAL_PACKAGE" ]; then
-          echo "Installing packed dependency: $FINAL_PACKAGE"
-          # Use absolute path for pnpm add to avoid confusion
-          ABSOLUTE_PACK_PATH="$(pwd)/$FINAL_PACKAGE"
-          echo "Using absolute path: $ABSOLUTE_PACK_PATH"
-          pnpm add "file:$ABSOLUTE_PACK_PATH"
-          pnpm install
-        else
-          echo "Warning: No packed file found"
+        
+        # Update package.json to reference the renamed pack file
+        if [ -n "$PACKAGE_NAME" ] && [ -n "$FINAL_PACKAGE" ]; then
+          echo "Updating package.json to reference $FINAL_PACKAGE"
+          # Update or add the dependency to point to the local pack file
+          cat package.json | jq ".dependencies[\"$PACKAGE_NAME\"] = \"file:$FINAL_PACKAGE\"" > package.json.tmp
+          mv package.json.tmp package.json
+          echo "Updated package.json with packed dependency"
         fi
+        
+        echo "Pack file successfully created and renamed with SHA"
 
     - name: Prepare PR details
       if: steps.validate-sha.outputs.needs-update == 'true'
