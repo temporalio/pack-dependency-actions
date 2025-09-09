@@ -335,11 +335,14 @@ runs:
           cd "$SOURCE_DIR"
         fi
 
-        # Pack in the source directory (creates .tgz in current directory)
-        echo "Packing in source directory using: ${{ inputs.pack-command }}"
+        # Pack using the configured command
+        echo "Packing using: ${{ inputs.pack-command }}"
         eval "${{ inputs.pack-command }}"
         
-        # Find the created pack file
+        # Return to source root after pack command (in case it changed directories)
+        cd "$SOURCE_DIR"
+        
+        # Find the created pack file in source root
         CREATED_PACK=$(ls *.tgz 2>/dev/null | head -n 1)
         
         if [ -z "$CREATED_PACK" ]; then
