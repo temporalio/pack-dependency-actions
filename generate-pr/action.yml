@@ -111,8 +111,21 @@ runs:
         # Get last merged SHA from file
         LAST_SHA=""
         if [ -f "$FILE_PATH" ]; then
-          LAST_SHA=$(head -n 1 "$FILE_PATH" | tr -d '[:space:]')
+          echo "File $FILE_PATH exists, reading SHA..."
+          FILE_CONTENT=$(cat "$FILE_PATH" 2>/dev/null || echo "")
+          echo "Raw file content: '$FILE_CONTENT'"
+          LAST_SHA=$(echo "$FILE_CONTENT" | head -n 1 | tr -d '[:space:]')
+          echo "Processed LAST_SHA: '$LAST_SHA' (length=${#LAST_SHA})"
+          
+          # Validate SHA format
+          if [ -n "$LAST_SHA" ] && ! [[ "$LAST_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Warning: Invalid SHA format in file: '$LAST_SHA'"
+            LAST_SHA=""
+          fi
+        else
+          echo "File $FILE_PATH does not exist (first run)"
         fi
+        echo "Setting output last-sha='$LAST_SHA'"
         echo "last-sha=$LAST_SHA" >> $GITHUB_OUTPUT
 
         # Resolve target SHA
@@ -173,15 +186,23 @@ runs:
         echo "short-sha=${RESOLVED_SHA:0:8}" >> $GITHUB_OUTPUT
 
         # Check if rollback without permission
-        if [ -n "$LAST_SHA" ] && [ "$ALLOW_ROLLBACK" != "true" ]; then
+        echo "Checking rollback: LAST_SHA='$LAST_SHA' (length=${#LAST_SHA}), ALLOW_ROLLBACK='$ALLOW_ROLLBACK'"
+        if [ -n "$LAST_SHA" ] && [ ${#LAST_SHA} -gt 0 ] && [ "$ALLOW_ROLLBACK" != "true" ]; then
+          echo "LAST_SHA is not empty, comparing commit dates..."
+          echo "Getting date for LAST_SHA='$LAST_SHA'"
           # Compare commit dates
           LAST_DATE=$(gh api repos/$REPO/commits/$LAST_SHA --jq .commit.committer.date)
+          echo "Last commit date: $LAST_DATE"
+          echo "Getting date for RESOLVED_SHA='$RESOLVED_SHA'"
           NEW_DATE=$(gh api repos/$REPO/commits/$RESOLVED_SHA --jq .commit.committer.date)
+          echo "New commit date: $NEW_DATE"
 
           if [[ "$NEW_DATE" < "$LAST_DATE" ]]; then
             echo "Error: Target commit is older than last merged commit. Set allow-rollback=true to proceed."
             exit 1
           fi
+        else
+          echo "Skipping rollback check (LAST_SHA is empty or ALLOW_ROLLBACK is true)"
         fi
 
         # Check if same as last SHA
