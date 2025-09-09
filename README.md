@@ -11,7 +11,7 @@ Checks and compares dependency versions between main branch and PRs, posting com
 
 **Usage:**
 ```yaml
-- uses: your-org/pack-dependency-actions/check-version@v1
+- uses: your-org/pack-dependency-actions/check-version@v0
   with:
     file-path: '.ui-sha'
     pr-number: ${{ github.event.pull_request.number }}
@@ -23,7 +23,7 @@ Sweeps all open PRs to check version consistency across the repository.
 
 **Usage:**
 ```yaml
-- uses: your-org/pack-dependency-actions/version-sweep@v1
+- uses: your-org/pack-dependency-actions/version-sweep@v0
   with:
     file-path: '.ui-sha'
     base-branch: 'main'
@@ -35,7 +35,7 @@ Automatically generates PRs with packed dependencies from source repositories, w
 
 **Usage:**
 ```yaml
-- uses: your-org/pack-dependency-actions/generate-pr@v1
+- uses: your-org/pack-dependency-actions/generate-pr@v0
   with:
     repository: 'temporalio/ui'
     target-sha: 'main'  # or specific commit SHA
@@ -64,7 +64,7 @@ Automatically closes and deletes stale generated PRs to keep the repository clea
 
 **Usage:**
 ```yaml
-- uses: your-org/pack-dependency-actions/auto-delete@v1
+- uses: your-org/pack-dependency-actions/auto-delete@v0
   with:
     days-old: 7
     labels-filter: 'test-ui,automated'
@@ -113,7 +113,7 @@ jobs:
   check-ui-pack:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v0
       - uses: ./check-version
         with:
           file-path: '.ui-sha'
@@ -211,7 +211,7 @@ Each action supports extensive configuration through inputs. Common configuratio
 
 ### Example: SvelteKit Project
 ```yaml
-uses: your-org/pack-dependency-actions/generate-pr@v1
+uses: your-org/pack-dependency-actions/generate-pr@v0
 with:
   repository: 'your-org/sveltekit-app'
   pre-pack-commands: 'pnpm svelte-kit sync'
@@ -221,7 +221,7 @@ with:
 
 ### Example: React Project
 ```yaml
-uses: your-org/pack-dependency-actions/generate-pr@v1
+uses: your-org/pack-dependency-actions/generate-pr@v0
 with:
   repository: 'your-org/react-app'
   package-command: 'pnpm build'
@@ -241,10 +241,10 @@ with:
 - GitHub Actions enabled in your repository
 - Appropriate permissions for the GitHub token (contents: read, pull-requests: write)
 - Dependencies on external actions:
-  - `actions/checkout@v4`
-  - `peter-evans/find-comment@v3`
-  - `peter-evans/create-or-update-comment@v4`
-  - `peter-evans/create-pull-request@v7`
+  - `actions/checkout@v0`
+  - `peter-evans/find-comment@v0`
+  - `peter-evans/create-or-update-comment@v0`
+  - `peter-evans/create-pull-request@v0`
 
 ## Contributing
 
