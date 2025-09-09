@@ -33,11 +33,10 @@ runs:
         REPOSITORY="${{ inputs.repository }}"
         SHA="${{ inputs.sha }}"
         PATH_PREFIX="${{ inputs.path }}"
-        
+
         echo "Downloading $REPOSITORY@$SHA..."
-        
+
         # Use API for private repos, direct URL for public
-        if [ -n "${{ inputs.token }}" ]; then
           curl -L \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
@@ -46,22 +45,22 @@ runs:
         else
           curl -L "https://github.com/$REPOSITORY/archive/$SHA.tar.gz" -o source.tar.gz
         fi
-        
+
         # Extract
         tar -xzf source.tar.gz
-        
+
         # Find extracted directory (GitHub creates with prefix)
         SOURCE_DIR=$(ls -d */ | grep -E "^[^/]+-[^/]+-[0-9a-f]+/" | head -n 1 | sed 's|/$||')
-        
+
         if [ -z "$SOURCE_DIR" ]; then
           echo "Error: Could not find extracted source directory"
           ls -la
           exit 1
         fi
-        
+
         # Rename to requested path
         mv "$SOURCE_DIR" "$PATH_PREFIX"
         rm source.tar.gz
-        
+
         echo "Source extracted to: $PATH_PREFIX"
         echo "source-path=$PATH_PREFIX" >> $GITHUB_OUTPUT

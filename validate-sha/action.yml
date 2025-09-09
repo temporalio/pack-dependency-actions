@@ -16,6 +16,10 @@ inputs:
     description: 'Allow older commits'
     required: false
     default: 'false'
+  token:
+    description: 'GitHub token for API access'
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   resolved-sha:
@@ -35,7 +39,7 @@ runs:
       id: resolve
       shell: bash
       env:
-        GH_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ inputs.token }}
       run: |
         REPOSITORY="${{ inputs.repository }}"
         TARGET_SHA="${{ inputs.target-sha }}"
