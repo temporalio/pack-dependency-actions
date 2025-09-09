@@ -322,78 +322,53 @@ runs:
           eval "${{ inputs.pre-pack-commands }}"
         fi
 
-        # Store current directory
-        ORIGINAL_DIR=$(pwd)
-        
         # Run package command if provided
         if [ -n "${{ inputs.package-command }}" ]; then
           echo "Running package command..."
           eval "${{ inputs.package-command }}"
           echo "Current directory after package command: $(pwd)"
+          # Return to source root after package command
+          cd "$SOURCE_DIR"
         fi
 
-        # Determine where to run pack from based on current directory
-        CURRENT_DIR=$(pwd)
+        # Pack in the source directory (creates .tgz in current directory)
+        echo "Packing in source directory..."
+        pnpm pack
         
-        # Calculate the relative path to the pack destination
-        if [[ "$CURRENT_DIR" == *"/packages/"* ]]; then
-          # We're in a subdirectory, adjust the path
-          echo "Packing from subdirectory: $CURRENT_DIR"
-          # We need to go up from packages/xxx to get out of the source directory
-          # Count the depth from the source directory root
-          RELATIVE_PATH="${CURRENT_DIR#$ORIGINAL_DIR/}"
-          DEPTH=$(echo "$RELATIVE_PATH" | tr -cd '/' | wc -c)
-          # Add 1 more to get out of the source directory itself
-          DEPTH=$((DEPTH + 1))
-          
-          PACK_PATH=""
-          for ((i=0; i<$DEPTH; i++)); do
-            PACK_PATH="../$PACK_PATH"
-          done
-          PACK_PATH="${PACK_PATH}$PACK_DIR"
-          echo "Pack destination: $PACK_PATH (depth=$DEPTH from $RELATIVE_PATH)"
-          pnpm pack --pack-destination "$PACK_PATH"
-        else
-          # We're in the source root
-          echo "Packing from source root: $CURRENT_DIR"
-          pnpm pack --pack-destination "../$PACK_DIR"
+        # Find the created pack file
+        CREATED_PACK=$(ls *.tgz 2>/dev/null | head -n 1)
+        
+        if [ -z "$CREATED_PACK" ]; then
+          echo "Error: No pack file was created"
+          exit 1
         fi
         
-        # Return to the original directory one level up
-        cd "$ORIGINAL_DIR"
+        echo "Created pack file: $CREATED_PACK"
+        
+        # Rename the pack file with SHA
+        SHORT_SHA="${SHA:0:8}"
+        if [ -n "$PACKAGE_NAME" ]; then
+          # Use the provided package name
+          NEW_NAME="${PACKAGE_NAME}-${SHORT_SHA}.tgz"
+        else
+          # Extract base name from created pack file
+          BASE_NAME=$(echo "$CREATED_PACK" | sed 's/-[0-9].*\.tgz$//')
+          NEW_NAME="${BASE_NAME}-${SHORT_SHA}.tgz"
+        fi
+        
+        echo "Moving $CREATED_PACK to ../$PACK_DIR/$NEW_NAME"
+        
+        # Move and rename the file to the main repo's pack directory
+        mv "$SOURCE_DIR/$CREATED_PACK" "../$PACK_DIR/$NEW_NAME"
+        
+        # Set the final package path
+        FINAL_PACKAGE="$PACK_DIR/$NEW_NAME"
+        
+        # Move to parent directory (main repo root)
         cd ..
         
-        echo "Looking for packed files in: $PACK_DIR"
-        ls -la "$PACK_DIR" || echo "Pack directory not found or empty"
-
-        # Rename packed file to include SHA
-        if [ -n "$PACKAGE_NAME" ]; then
-          # Find the packed file with the package name pattern
-          echo "Looking for files matching: $PACK_DIR/${PACKAGE_NAME}*.tgz"
-          PACKED_FILE=$(ls "$PACK_DIR"/*.tgz 2>/dev/null | grep "$PACKAGE_NAME" | head -n 1)
-          if [ -n "$PACKED_FILE" ]; then
-            # Extract just the filename
-            FILENAME=$(basename "$PACKED_FILE")
-            # Remove version and .tgz, then add SHA (use short SHA)
-            BASE_NAME=$(echo "$FILENAME" | sed 's/-[0-9].*\.tgz$//')
-            SHORT_SHA="${SHA:0:8}"
-            NEW_NAME="${BASE_NAME}-${SHORT_SHA}.tgz"
-            echo "Renaming $FILENAME to $NEW_NAME"
-            mv "$PACKED_FILE" "$PACK_DIR/${NEW_NAME}"
-            FINAL_PACKAGE="$PACK_DIR/${NEW_NAME}"
-          fi
-        else
-          # Generic rename for any .tgz file
-          PACKED_FILE=$(ls "$PACK_DIR"/*.tgz 2>/dev/null | head -n 1)
-          if [ -n "$PACKED_FILE" ]; then
-            FILENAME=$(basename "$PACKED_FILE" .tgz)
-            SHORT_SHA="${SHA:0:8}"
-            NEW_NAME="${FILENAME}-${SHORT_SHA}.tgz"
-            echo "Renaming $(basename $PACKED_FILE) to $NEW_NAME"
-            mv "$PACKED_FILE" "$PACK_DIR/${NEW_NAME}"
-            FINAL_PACKAGE="$PACK_DIR/${NEW_NAME}"
-          fi
-        fi
+        echo "Pack file created: $FINAL_PACKAGE"
+        ls -la "$PACK_DIR"
 
         # Clean up source directory
         rm -rf "$SOURCE_DIR" source.tar.gz
