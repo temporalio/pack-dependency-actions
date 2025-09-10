@@ -50,27 +50,35 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Parse inputs
+      id: parse
+      shell: bash
+      run: |
+        # Parse the workflow inputs JSON and create workflow_dispatch payload
+        echo "Preparing to dispatch workflow ${{ inputs.workflow }} in ${{ inputs.repository }}"
+        
+        # Create the payload with proper JSON formatting
+        if [ -z "${{ inputs.inputs }}" ] || [ "${{ inputs.inputs }}" == "{}" ]; then
+          echo "payload={\"ref\":\"${{ inputs.ref }}\"}" >> $GITHUB_OUTPUT
+        else
+          # Escape the inputs for safe passing
+          ESCAPED_INPUTS=$(echo '${{ inputs.inputs }}' | jq -c '.')
+          echo "payload={\"ref\":\"${{ inputs.ref }}\",\"inputs\":$ESCAPED_INPUTS}" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "Payload prepared for dispatch"
+
     - name: Dispatch workflow
       id: dispatch
       shell: bash
       run: |
-        echo "Dispatching workflow ${{ inputs.workflow }} in ${{ inputs.repository }}"
+        echo "Dispatching workflow..."
         
-        # Dispatch the workflow
-        response=$(gh api \
-          -X POST \
-          -H "Accept: application/vnd.github+json" \
-          -H "Authorization: Bearer ${{ inputs.token }}" \
-          "/repos/${{ inputs.repository }}/actions/workflows/${{ inputs.workflow }}/dispatches" \
-          -f ref="${{ inputs.ref }}" \
-          -f inputs="${{ inputs.inputs }}" \
-          -i 2>&1) || dispatch_exit_code=$?
-        
-        if [ ${dispatch_exit_code:-0} -ne 0 ]; then
-          echo "Failed to dispatch workflow"
-          echo "$response"
-          exit 1
-        fi
+        # Use gh workflow run command which handles JSON properly
+        gh workflow run "${{ inputs.workflow }}" \
+          --repo "${{ inputs.repository }}" \
+          --ref "${{ inputs.ref }}" \
+          --json <<< '${{ inputs.inputs }}'
         
         # Wait a moment for the workflow to be created
         sleep 5
@@ -79,7 +87,6 @@ runs:
         echo "Getting workflow run ID..."
         workflow_runs=$(gh api \
           -H "Accept: application/vnd.github+json" \
-          -H "Authorization: Bearer ${{ inputs.token }}" \
           "/repos/${{ inputs.repository }}/actions/workflows/${{ inputs.workflow }}/runs?per_page=1" \
           --jq '.workflow_runs[0]')
         
