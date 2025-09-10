@@ -1,250 +1,331 @@
 # Pack Dependency Actions
 
-A collection of GitHub Actions for managing dependency version consistency across PRs in monorepo setups using packed dependencies (like `.ui-sha` files tracking upstream commits).
+A collection of modular GitHub Actions for managing packed dependencies from upstream repositories. These actions automate the process of building, packing, and updating dependencies from source, particularly useful for monorepos and projects that need to consume pre-release versions of dependencies.
 
-## Actions
+## Philosophy
 
-This repository contains multiple reusable actions:
+This repository provides individual, focused actions rather than composite workflows. This design allows consuming repositories to:
+- Compose actions in ways specific to their needs
+- Add custom steps between actions
+- Use only the actions they need
+- Maintain full control over their workflow logic
 
-### 1. check-version
+## Current Actions
+
+This repository provides 8 specialized actions that can be composed together to create complete dependency management workflows:
+
+### Core Actions
+
+#### validate-sha
+Validates and resolves target SHA for a repository, preventing accidental rollbacks.
+
+**Usage:**
+```yaml
+- uses: temporalio/pack-dependency-actions/validate-sha@main
+  with:
+    repository: 'owner/repo'
+    target-sha: ${{ github.event.inputs.target-sha }}
+    file-path: '.registry-sha'
+    allow-rollback: false
+```
+
+#### download-source
+Downloads source code from a repository at a specific SHA.
+
+**Usage:**
+```yaml
+- uses: temporalio/pack-dependency-actions/download-source@main
+  with:
+    repository: 'owner/repo'
+    sha: ${{ steps.validate.outputs.resolved-sha }}
+    token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+#### build-and-pack
+Builds and packs a project from source.
+
+**Usage:**
+```yaml
+- uses: temporalio/pack-dependency-actions/build-and-pack@main
+  with:
+    source-path: 'source'
+    build-command: 'pnpm build'
+    pack-command: 'pnpm pack'
+```
+
+#### move-pack
+Moves and renames packed tarballs with SHA for traceability.
+
+**Usage:**
+```yaml
+- uses: temporalio/pack-dependency-actions/move-pack@main
+  with:
+    source-path: 'source'
+    pack-destination: './packs'
+    package-name: 'my-package'
+    sha: ${{ steps.validate.outputs.resolved-sha }}
+    source-pattern: '*.tgz'
+```
+
+#### update-dependencies
+Updates package.json dependencies to use packed tarballs.
+
+**Usage:**
+```yaml
+- uses: temporalio/pack-dependency-actions/update-dependencies@main
+  with:
+    package-names: '@org/package1,@org/package2'
+    pack-files: './packs/package1.tgz,./packs/package2.tgz'
+    package-manager: 'pnpm'
+```
+
+#### generate-changelog
+Generates a changelog between two commits.
+
+**Usage:**
+```yaml
+- uses: temporalio/pack-dependency-actions/generate-changelog@main
+  with:
+    repository: 'owner/repo'
+    from-sha: ${{ steps.validate.outputs.last-sha }}
+    to-sha: ${{ steps.validate.outputs.resolved-sha }}
+    format: 'markdown'
+```
+
+### PR Management Actions
+
+#### check-version
 Checks and compares dependency versions between main branch and PRs, posting comments when versions differ.
 
 **Usage:**
 ```yaml
-- uses: your-org/pack-dependency-actions/check-version@v0
+- uses: temporalio/pack-dependency-actions/check-version@main
   with:
     file-path: '.ui-sha'
     pr-number: ${{ github.event.pull_request.number }}
     update-command: 'pnpm run update-ui'
 ```
 
-### 2. version-sweep
+#### version-sweep
 Sweeps all open PRs to check version consistency across the repository.
 
 **Usage:**
 ```yaml
-- uses: your-org/pack-dependency-actions/version-sweep@v0
+- uses: temporalio/pack-dependency-actions/version-sweep@main
   with:
     file-path: '.ui-sha'
     base-branch: 'main'
     labels-filter: 'needs-update'
 ```
 
-### 3. generate-pr
-Automatically generates PRs with packed dependencies from source repositories, with complete build and pack workflow.
+### Maintenance Actions
 
-**Usage:**
-```yaml
-- uses: your-org/pack-dependency-actions/generate-pr@v0
-  with:
-    repository: 'temporalio/ui'
-    target-sha: 'main'  # or specific commit SHA
-    allow-rollback: false
-    mode: 'test'  # or 'release'
-    file-path: '.ui-sha'
-    pack-destination: './packs'
-    package-name: '@temporalio/ui'
-    pre-pack-commands: 'pnpm svelte-kit sync'
-    package-command: 'pnpm package'
-    remove-prepare-script: true
-    ignore-scripts: true
-```
-
-**Key Features:**
-- Downloads and builds dependencies from source
-- Validates target SHA against last merged version
-- Prevents accidental rollbacks (configurable)
-- Generates commit changelog automatically
-- Removes prepare scripts and handles install flags
-- Renames packed files with SHA for traceability
-- Creates draft PRs with detailed commit history
-
-### 4. auto-delete
+#### auto-delete
 Automatically closes and deletes stale generated PRs to keep the repository clean.
 
 **Usage:**
 ```yaml
-- uses: your-org/pack-dependency-actions/auto-delete@v0
+- uses: temporalio/pack-dependency-actions/auto-delete@main
   with:
     days-old: 7
     labels-filter: 'test-ui,automated'
     dry-run: false
 ```
 
-## Complete Workflow Examples
+## Composing Actions in Your Workflow
 
-The repository includes complete workflow files that combine these actions:
+These actions are designed to be composed together in your repository's workflows. Here's a complete example showing how to combine them:
 
-### Input Parameters for generate-pr
+### Example: Complete Update Workflow
 
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `target-sha` | Target commit SHA or branch name | No | Latest commit |
-| `allow-rollback` | Allow commits older than last merged | No | `false` |
-| `mode` | PR mode (test or release) | No | `test` |
-| `repository` | Source repository (owner/name) | Yes | - |
-| `file-path` | Path to version file | No | `.ui-sha` |
-| `pack-destination` | Directory for packed files | No | `./packs` |
-| `package-name` | Name of package being packed | No | - |
-| `pre-pack-commands` | Commands to run before packing | No | - |
-| `package-command` | Build command before packing | No | - |
-| `remove-prepare-script` | Remove prepare script from package.json | No | `true` |
-| `ignore-scripts` | Use --ignore-scripts when installing | No | `true` |
-| `pr-title-template` | Template for PR title | No | `{mode} {repository}@{short_sha}` |
-| `pr-body-template` | Template for PR body | No | See action.yml |
-| `labels` | Labels to add to PR | No | `{mode}-ui` |
-| `draft` | Create as draft PR | No | `always-true` |
-
-### check-ui-pack-version.yml
-Checks UI pack version on PRs and can be called from other workflows:
+This real-world example from `frontend-shared-workflows` demonstrates composing multiple actions to update packed dependencies:
 
 ```yaml
-name: Check UI Pack Version
+name: Update Temporal Workers Packages
+
 on:
-  pull_request:
-    branches: [main]
-  workflow_call:
+  workflow_dispatch:
     inputs:
-      pr_number:
-        type: number
-        required: true
+      target-sha:
+        description: 'Target commit SHA or branch (leave blank for latest)'
+        required: false
 
 jobs:
-  check-ui-pack:
+  update-packs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ./check-version
+      # 1. Validate the target SHA
+      - name: Validate SHA
+        id: validate
+        uses: temporalio/pack-dependency-actions/validate-sha@main
         with:
-          file-path: '.ui-sha'
-          pr-number: ${{ inputs.pr_number || github.event.pull_request.number }}
-```
+          repository: temporalio/frontend-workflow-runner
+          target-sha: ${{ github.event.inputs.target-sha }}
+          file-path: .registry-sha
+          allow-rollback: true
 
-### check-ui-pack-version-sweep.yml
-Runs periodically to check all open PRs:
-
-```yaml
-name: UI Pack Version Sweep
-on:
-  push:
-    branches: [main]
-    paths: ['.ui-sha']
-  schedule:
-    - cron: '0 */6 * * *'
-
-jobs:
-  sweep:
-    # Uses version-sweep action to get PRs
-    # Then calls check-ui-pack-version.yml for each PR
-```
-
-### generate-ui-pr.yml
-Creates automated update PRs with fully packed dependencies from source:
-
-```yaml
-name: Generate temporalio/ui PR
-on:
-  workflow_dispatch:
-    inputs:
-      ui_commit_sha:
-        description: 'Commit SHA or Branch Name'
-        required: false
-      allow_rollback:
-        description: 'Allow older commits'
-        type: boolean
-        default: false
-      mode:
-        description: 'PR mode: test or release'
-        type: choice
-        options:
-          - test
-          - release
-
-jobs:
-  build-ui-pr:
-    steps:
-      - uses: ./generate-pr
+      # 2. Download the source code
+      - name: Download source
+        uses: temporalio/pack-dependency-actions/download-source@main
         with:
-          repository: 'temporalio/ui'
-          target-sha: ${{ inputs.ui_commit_sha }}
-          allow-rollback: ${{ inputs.allow_rollback }}
-          mode: ${{ inputs.mode }}
+          repository: temporalio/frontend-workflow-runner
+          sha: ${{ steps.validate.outputs.resolved-sha }}
+
+      # 3. Build and pack multiple packages
+      - name: Build and pack registry
+        uses: temporalio/pack-dependency-actions/build-and-pack@main
+        with:
+          source-path: source
+          build-command: 'pnpm -r build'
+          pack-command: 'pnpm pack:registry'
+
+      # 4. Move packed files with SHA naming
+      - name: Move registry pack
+        uses: temporalio/pack-dependency-actions/move-pack@main
+        with:
+          source-path: source
+          pack-destination: ./packs
+          package-name: 'temporal-workers-registry'
+          sha: ${{ steps.validate.outputs.resolved-sha }}
+
+      # 5. Update package.json dependencies
+      - name: Update dependencies
+        uses: temporalio/pack-dependency-actions/update-dependencies@main
+        with:
+          package-names: '@temporal-workers/registry,@temporal-workers/ui'
+          pack-files: './packs/temporal-workers-registry-${{ steps.validate.outputs.short-sha }}.tgz,./packs/temporal-workers-ui-${{ steps.validate.outputs.short-sha }}.tgz'
+
+      # 6. Generate changelog
+      - name: Generate changelog
+        uses: temporalio/pack-dependency-actions/generate-changelog@main
+        with:
+          repository: temporalio/frontend-workflow-runner
+          from-sha: ${{ steps.validate.outputs.last-sha }}
+          to-sha: ${{ steps.validate.outputs.resolved-sha }}
+
+      # 7. Create PR with all changes
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          title: 'Update to ${{ steps.validate.outputs.short-sha }}'
+          body: ${{ steps.changelog.outputs.changelog }}
 ```
 
-### auto-delete-generated-prs.yaml
-Cleans up stale automated PRs:
+## Common Patterns
 
-```yaml
-name: Auto Delete Generated PRs
-on:
-  schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
-    inputs:
-      dry-run:
-        type: boolean
-        default: false
+### Building and Packing from Source
 
-jobs:
-  cleanup-stale-prs:
-    # Uses auto-delete action to clean up
-```
+A typical workflow for building and packing dependencies from source follows this pattern:
+
+1. **Validate** the target SHA to prevent rollbacks
+2. **Download** the source code
+3. **Build and pack** the project
+4. **Move** packed files with SHA naming
+5. **Update** package.json dependencies
+6. **Generate** a changelog
+7. **Create** a PR with the changes
+
+### Versioning Strategy
+
+The actions use SHA-based versioning for packed dependencies:
+- Pack files are named with the commit SHA: `package-name-{short-sha}.tgz`
+- Version files (`.ui-sha`, `.registry-sha`) track the current SHA
+- This provides complete traceability back to the source commit
+
+## Action Parameters
+
+### Common Input Parameters
+
+Most actions share these common parameters:
+
+| Parameter | Description | Used By |
+|-----------|-------------|---------|
+| `repository` | Source repository (owner/name) | validate-sha, download-source, generate-changelog |
+| `sha` / `target-sha` | Commit SHA or branch | validate-sha, download-source, move-pack |
+| `file-path` | Version tracking file | validate-sha, check-version |
+| `source-path` | Path to source code | build-and-pack, move-pack |
+| `pack-destination` | Output directory for packs | move-pack |
+| `package-name` | Package name for naming | move-pack |
+| `build-command` | Build command to run | build-and-pack |
+| `pack-command` | Pack command to run | build-and-pack |
+| `package-manager` | npm, pnpm, or yarn | update-dependencies |
+
 
 ## Installation
 
-1. Fork or copy this repository to your organization
-2. Update the action references in the workflow files to point to your organization
-3. Customize the configuration for your specific needs
-4. Add the workflow files to your repository's `.github/workflows/` directory
+1. Reference the actions directly from this repository:
+   ```yaml
+   uses: temporalio/pack-dependency-actions/action-name@main
+   ```
 
-## Configuration
+2. Or fork to your organization for customization:
+   ```yaml
+   uses: your-org/pack-dependency-actions/action-name@main
+   ```
 
-Each action supports extensive configuration through inputs. Common configurations include:
+3. Add necessary secrets:
+   - `GITHUB_TOKEN` (usually available by default)
+   - App tokens for cross-repository access (if needed)
 
-- **Version file paths**: Customize which files to track (`.ui-sha`, `package.json`, etc.)
-- **Build workflow**: Configure pre-pack commands, package commands, and pack destinations
-- **Package handling**: Remove prepare scripts, ignore install scripts, rename with SHA
-- **PR labels**: Control which labels are added to automated PRs
-- **Cleanup policies**: Configure when to close stale PRs (days old, labels to exclude, etc.)
-- **SHA validation**: Prevent accidental rollbacks with `allow-rollback` flag
-- **PR modes**: Differentiate between test and release PRs with labels and naming
+## Use Cases
 
-### Example: SvelteKit Project
-```yaml
-uses: your-org/pack-dependency-actions/generate-pr@v0
-with:
-  repository: 'your-org/sveltekit-app'
-  pre-pack-commands: 'pnpm svelte-kit sync'
-  package-command: 'pnpm package'
-  package-name: '@your-org/ui'
-```
+### 1. Consuming Pre-Release Dependencies
+When you need to use the latest changes from an upstream repository before they're published to npm:
+- Build and pack dependencies directly from source
+- Version with commit SHA for traceability
+- Automatically update when upstream changes
 
-### Example: React Project
-```yaml
-uses: your-org/pack-dependency-actions/generate-pr@v0
-with:
-  repository: 'your-org/react-app'
-  package-command: 'pnpm build'
-  package-name: '@your-org/components'
-```
+### 2. Monorepo Package Distribution
+For distributing packages within a monorepo or across organizations:
+- Pack workspace packages for consumption
+- Maintain version consistency across projects
+- Automate dependency updates with PRs
 
-## Benefits
+### 3. Testing Integration Changes
+When testing integration between multiple repositories:
+- Create test PRs with specific dependency versions
+- Validate changes before official releases
+- Clean up stale test PRs automatically
 
-- **Consistency**: Ensures all PRs use the same dependency versions as main branch
-- **Automation**: Reduces manual work in dependency management
-- **Visibility**: Clear PR comments show version mismatches
-- **Cleanliness**: Automatic cleanup prevents PR accumulation
-- **Flexibility**: Each action can be used independently or combined
+## Key Features
+
+- **Modular Design**: Each action performs a specific task and can be used independently
+- **SHA Tracking**: All packed dependencies are versioned with commit SHAs for complete traceability
+- **Rollback Prevention**: Built-in validation prevents accidental downgrades
+- **Automated Workflows**: Combine actions to create fully automated dependency update pipelines
+- **Cross-Repository Support**: Works with any GitHub repository using appropriate tokens
+- **Package Manager Agnostic**: Supports npm, pnpm, and yarn
+
+## Action Outputs
+
+Each action provides specific outputs for chaining:
+
+### validate-sha
+- `resolved-sha`: Full SHA that was validated
+- `short-sha`: Short version (8 chars) of the SHA
+- `last-sha`: Previous SHA from the version file
+- `is-rollback`: Whether this is a rollback
+
+### build-and-pack
+- `pack-files`: List of generated pack files
+
+### generate-changelog
+- `changelog`: Formatted changelog content
 
 ## Requirements
 
 - GitHub Actions enabled in your repository
-- Appropriate permissions for the GitHub token (contents: read, pull-requests: write)
+- Appropriate permissions for the GitHub token:
+  - `contents: read` (minimum)
+  - `contents: write` (for PR creation)
+  - `pull-requests: write` (for PR operations)
+- Node.js and package manager (npm/pnpm/yarn) in workflow
 - Dependencies on external actions:
-  - `actions/checkout@v0`
-  - `peter-evans/find-comment@v3`
-  - `peter-evans/create-or-update-comment@v4`
-  - `peter-evans/create-pull-request@v7`
+  - `actions/checkout@v4`
+  - `actions/setup-node@v4`
+  - `pnpm/action-setup@v2` (if using pnpm)
+  - `peter-evans/create-pull-request@v7` (for PR creation)
+  - `peter-evans/find-comment@v3` (for PR comments)
+  - `peter-evans/create-or-update-comment@v4` (for PR comments)
 
 ## Contributing
 
