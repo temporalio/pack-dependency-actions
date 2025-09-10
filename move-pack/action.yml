@@ -44,7 +44,14 @@ runs:
 
         # Create root pack destination
         mkdir -p "$ROOT_PACK_DEST"
-        rm -rf "$ROOT_PACK_DEST"/*
+
+        # Clean up old versions of this specific package if package name provided
+        if [ -n "$PACKAGE_NAME" ]; then
+          CLEAN_NAME="${PACKAGE_NAME//[@\/]/-}"
+          CLEAN_NAME="${CLEAN_NAME#-}"
+          echo "Cleaning up old versions of $CLEAN_NAME..."
+          rm -f "$ROOT_PACK_DEST/$CLEAN_NAME"-*.tgz 2>/dev/null || true
+        fi
 
         cd "$SOURCE_PATH"
 
