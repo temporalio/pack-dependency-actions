@@ -15,6 +15,10 @@ inputs:
     description: 'Output format (markdown, table, simple)'
     required: false
     default: 'markdown'
+  token:
+    description: 'GitHub token for API access'
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   changelog:
@@ -31,7 +35,7 @@ runs:
       id: generate
       shell: bash
       env:
-        GH_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ inputs.token }}
       run: |
         REPOSITORY="${{ inputs.repository }}"
         FROM_SHA="${{ inputs.from-sha }}"
