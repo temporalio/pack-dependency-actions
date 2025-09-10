@@ -1,0 +1,63 @@
+# Example workflow for frontend-workflow-runner repository
+# This workflow triggers an update in frontend-shared-workflows when changes are pushed to main
+name: Trigger Downstream Updates
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      # Only trigger when actual code changes are made
+      - 'packages/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+    inputs:
+      target-sha:
+        description: 'Specific SHA to use (defaults to current HEAD)'
+        required: false
+
+jobs:
+  trigger-updates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get commit SHA
+        id: sha
+        run: |
+          if [ -n "${{ github.event.inputs.target-sha }}" ]; then
+            echo "sha=${{ github.event.inputs.target-sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate token for cross-repo access
+        id: generate_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.TEMPORAL_CICD_APP_ID }}
+          private-key: ${{ secrets.TEMPORAL_CICD_PRIVATE_KEY }}
+          owner: temporalio
+          repositories: frontend-shared-workflows,frontend-workflow-runner
+
+      - name: Trigger frontend-shared-workflows update
+        uses: temporalio/pack-dependency-actions/dispatch-workflow@main
+        with:
+          token: ${{ steps.generate_token.outputs.token }}
+          repository: 'temporalio/frontend-shared-workflows'
+          workflow: 'update-temporal-workers.yml'
+          ref: 'main'
+          inputs: |
+            {
+              "target-sha": "${{ steps.sha.outputs.sha }}",
+              "mode": "release"
+            }
+
+      - name: Comment on merge commit
+        if: github.event_name == 'push'
+        run: |
+          echo "✅ Triggered release update workflow in frontend-shared-workflows"
+          echo "Target SHA: ${{ steps.sha.outputs.sha }}"
+          echo "The workflow will update the release PR (or create one if it doesn't exist)."

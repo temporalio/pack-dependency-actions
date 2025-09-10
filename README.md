@@ -12,7 +12,7 @@ This repository provides individual, focused actions rather than composite workf
 
 ## Current Actions
 
-This repository provides 8 specialized actions that can be composed together to create complete dependency management workflows:
+This repository provides 9 specialized actions that can be composed together to create complete dependency management workflows:
 
 ### Core Actions
 
@@ -118,7 +118,40 @@ Sweeps all open PRs to check version consistency across the repository.
     labels-filter: 'needs-update'
 ```
 
-### Maintenance Actions
+### Automation Actions
+
+#### dispatch-workflow
+Triggers workflows in remote repositories.
+
+**Usage:**
+```yaml
+- uses: temporalio/pack-dependency-actions/dispatch-workflow@main
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    repository: 'owner/repo'
+    workflow: 'update-dependencies.yml'
+    inputs: '{"target-sha": "${{ github.sha }}"}'
+    wait-for-completion: true
+```
+
+**Key Features:**
+- Triggers workflows in other repositories
+- Pass custom inputs to the target workflow
+- Optional waiting for workflow completion
+- Returns workflow run ID and URL
+
+**Common Use Case:**
+Trigger dependency update workflows in downstream repositories when upstream changes are merged:
+```yaml
+# In frontend-workflow-runner repo, on push to main:
+- uses: temporalio/pack-dependency-actions/dispatch-workflow@main
+  with:
+    repository: 'temporalio/frontend-shared-workflows'
+    workflow: 'update-temporal-workers.yml'
+    inputs: '{"target-sha": "${{ github.sha }}"}'
+```
+
+**Note:** PR reuse is handled automatically by `peter-evans/create-pull-request` in the target workflow when using the same branch name. Consider implementing a "mode" parameter in your target workflow to control whether to create test PRs (with SHA in branch name) or release PRs (with fixed branch name for automatic updates).
 
 #### auto-delete
 Automatically closes and deletes stale generated PRs to keep the repository clean.
@@ -224,6 +257,32 @@ A typical workflow for building and packing dependencies from source follows thi
 6. **Generate** a changelog
 7. **Create** a PR with the changes
 
+### Automated Dependency Updates Pattern
+
+For automated dependency updates triggered from upstream repositories:
+
+1. **Upstream repo** (e.g., frontend-workflow-runner) merges to main
+2. **Dispatch action** triggers workflow in downstream repo
+3. **Downstream workflow** supports two modes:
+   - **Test mode**: Creates new PR with SHA in branch/title (for testing specific versions)
+   - **Release mode**: Updates single reusable PR (for automated continuous updates)
+4. **peter-evans/create-pull-request** automatically handles PR reuse when branch name is consistent
+
+Example implementation in target workflow:
+```yaml
+inputs:
+  mode:
+    type: choice
+    options: [test, release]
+    default: test
+
+# In PR creation step:
+- if: inputs.mode == 'release'
+  run: echo "branch=update-dependencies" >> $GITHUB_OUTPUT
+- if: inputs.mode == 'test'  
+  run: echo "branch=test-dependencies-${{ sha }}" >> $GITHUB_OUTPUT
+```
+
 ### Versioning Strategy
 
 The actions use SHA-based versioning for packed dependencies:
@@ -310,6 +369,12 @@ Each action provides specific outputs for chaining:
 
 ### generate-changelog
 - `changelog`: Formatted changelog content
+
+### dispatch-workflow
+- `workflow-id`: ID of the dispatched workflow run
+- `workflow-url`: URL of the dispatched workflow run
+- `status`: Final status if wait-for-completion is true
+- `conclusion`: Final conclusion if wait-for-completion is true
 
 ## Requirements
 

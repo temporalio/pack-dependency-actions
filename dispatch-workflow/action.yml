@@ -1,0 +1,147 @@
+name: 'Dispatch Workflow'
+description: 'Dispatch a workflow in a remote repository'
+author: 'Temporal'
+
+inputs:
+  token:
+    description: 'GitHub token with repo and workflow permissions for target repository'
+    required: true
+  repository:
+    description: 'Target repository in owner/name format'
+    required: true
+  workflow:
+    description: 'Workflow file name (e.g., update-dependencies.yml) or workflow ID'
+    required: true
+  ref:
+    description: 'Git reference (branch, tag, or SHA) to run the workflow on'
+    required: false
+    default: 'main'
+  inputs:
+    description: 'JSON string of inputs to pass to the workflow'
+    required: false
+    default: '{}'
+  wait-for-completion:
+    description: 'Wait for the workflow to complete before returning'
+    required: false
+    default: 'false'
+  wait-timeout:
+    description: 'Maximum time to wait for workflow completion in seconds'
+    required: false
+    default: '300'
+  wait-interval:
+    description: 'Interval between status checks in seconds'
+    required: false
+    default: '10'
+
+outputs:
+  workflow-id:
+    description: 'ID of the dispatched workflow run'
+    value: ${{ steps.dispatch.outputs.workflow-id }}
+  workflow-url:
+    description: 'URL of the dispatched workflow run'
+    value: ${{ steps.dispatch.outputs.workflow-url }}
+  status:
+    description: 'Final status if wait-for-completion is true'
+    value: ${{ steps.wait.outputs.status }}
+  conclusion:
+    description: 'Final conclusion if wait-for-completion is true'
+    value: ${{ steps.wait.outputs.conclusion }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Dispatch workflow
+      id: dispatch
+      shell: bash
+      run: |
+        echo "Dispatching workflow ${{ inputs.workflow }} in ${{ inputs.repository }}"
+        
+        # Dispatch the workflow
+        response=$(gh api \
+          -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ inputs.token }}" \
+          "/repos/${{ inputs.repository }}/actions/workflows/${{ inputs.workflow }}/dispatches" \
+          -f ref="${{ inputs.ref }}" \
+          -f inputs="${{ inputs.inputs }}" \
+          -i 2>&1) || dispatch_exit_code=$?
+        
+        if [ ${dispatch_exit_code:-0} -ne 0 ]; then
+          echo "Failed to dispatch workflow"
+          echo "$response"
+          exit 1
+        fi
+        
+        # Wait a moment for the workflow to be created
+        sleep 5
+        
+        # Get the workflow run ID
+        echo "Getting workflow run ID..."
+        workflow_runs=$(gh api \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ inputs.token }}" \
+          "/repos/${{ inputs.repository }}/actions/workflows/${{ inputs.workflow }}/runs?per_page=1" \
+          --jq '.workflow_runs[0]')
+        
+        workflow_id=$(echo "$workflow_runs" | jq -r '.id')
+        workflow_url=$(echo "$workflow_runs" | jq -r '.html_url')
+        
+        echo "Workflow dispatched successfully"
+        echo "Workflow Run ID: $workflow_id"
+        echo "Workflow URL: $workflow_url"
+        
+        echo "workflow-id=$workflow_id" >> $GITHUB_OUTPUT
+        echo "workflow-url=$workflow_url" >> $GITHUB_OUTPUT
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+
+    - name: Wait for workflow completion
+      id: wait
+      if: inputs.wait-for-completion == 'true'
+      shell: bash
+      run: |
+        workflow_id="${{ steps.dispatch.outputs.workflow-id }}"
+        max_wait=${{ inputs.wait-timeout }}
+        interval=${{ inputs.wait-interval }}
+        elapsed=0
+        
+        echo "Waiting for workflow $workflow_id to complete..."
+        echo "Maximum wait time: ${max_wait}s, check interval: ${interval}s"
+        
+        while [ $elapsed -lt $max_wait ]; do
+          run_status=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ inputs.token }}" \
+            "/repos/${{ inputs.repository }}/actions/runs/$workflow_id" \
+            --jq '.status')
+          
+          run_conclusion=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ inputs.token }}" \
+            "/repos/${{ inputs.repository }}/actions/runs/$workflow_id" \
+            --jq '.conclusion // "pending"')
+          
+          echo "[$elapsed/${max_wait}s] Status: $run_status, Conclusion: $run_conclusion"
+          
+          if [ "$run_status" == "completed" ]; then
+            echo "Workflow completed with conclusion: $run_conclusion"
+            echo "status=$run_status" >> $GITHUB_OUTPUT
+            echo "conclusion=$run_conclusion" >> $GITHUB_OUTPUT
+            
+            if [ "$run_conclusion" != "success" ]; then
+              echo "::warning::Workflow completed with conclusion: $run_conclusion"
+              exit 1
+            fi
+            exit 0
+          fi
+          
+          sleep $interval
+          elapsed=$((elapsed + interval))
+        done
+        
+        echo "::error::Timeout waiting for workflow to complete"
+        echo "status=timeout" >> $GITHUB_OUTPUT
+        echo "conclusion=timeout" >> $GITHUB_OUTPUT
+        exit 1
+      env:
+        GH_TOKEN: ${{ inputs.token }}
