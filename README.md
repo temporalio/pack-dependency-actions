@@ -95,7 +95,15 @@ Generates a changelog between two commits.
 ### PR Management Actions
 
 #### check-version
-Checks and compares dependency versions between main branch and PRs, posting comments when versions differ.
+Checks and compares dependency versions between main branch and PRs. Creates non-blocking review comments when versions differ, with smart deduplication and support for new files.
+
+**Key Features:**
+- Non-blocking COMMENT reviews (not REQUEST_CHANGES)
+- Comment deduplication - updates existing comments instead of creating duplicates
+- Smart detection of version mismatches with detailed reasoning
+- Support for new version files that don't exist on main
+- Configurable branch patterns allowed to modify versions
+- Checks if PR actually modified the file vs just being outdated
 
 **Usage:**
 ```yaml
@@ -103,8 +111,32 @@ Checks and compares dependency versions between main branch and PRs, posting com
   with:
     file-path: '.ui-sha'
     pr-number: ${{ github.event.pull_request.number }}
-    update-command: 'pnpm run update-ui'
+    comment-title: 'UI Pack Version Mismatch'
+    allow-pattern: '^(update|generate|release)-ui-.*'
+    comment-body-template: |
+      ## {comment_title} 🔄
+      
+      The pack version in `{file_path}` differs from the main branch.
+      
+      **Main branch:** `{main_version}`
+      **This PR:** `{pr_version}`
+      
+      To update this PR with the latest version from main, run:
+      ```bash
+      {update_command}
+      ```
+      
+      **Reason:** {reason}
+    update-command: 'git fetch origin main && git merge origin/main'
 ```
+
+**Outputs:**
+- `should-block`: Boolean indicating if PR should be blocked
+- `main-version`: Version from main branch
+- `pr-version`: Version from PR branch
+- `base-version`: Version from merge base
+- `pr-modified`: Boolean indicating if PR modified the file
+- `reason`: Human-readable reason for the decision
 
 #### version-sweep
 Sweeps all open PRs to check version consistency across the repository.
