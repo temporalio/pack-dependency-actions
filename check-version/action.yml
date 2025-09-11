@@ -19,12 +19,12 @@ inputs:
     required: false
     default: |
       ## {comment_title}
-      
+
       The version file `{file_path}` differs between the main branch and this PR.
-      
+
       **Main branch version:** `{main_version}`
       **PR version:** `{pr_version}`
-      
+
       To update this PR with the latest version from main, run:
       ```bash
       {update_command}
@@ -32,118 +32,303 @@ inputs:
   update-command:
     description: 'Command to fix version mismatch'
     required: false
-    default: 'pnpm run update-ui'
+    default: 'git fetch origin main && git merge origin/main'
   token:
     description: 'GitHub token'
     required: false
     default: ${{ github.token }}
+  allow-pattern:
+    description: 'Regex pattern for branch names that are allowed to change versions (e.g., generate-ui-pr branches)'
+    required: false
+    default: '^(update|generate|auto)-.*'
 
 outputs:
-  mismatch:
-    description: 'Boolean indicating if versions differ'
-    value: ${{ steps.check-version.outputs.mismatch }}
+  should-block:
+    description: 'Boolean indicating if PR should be blocked'
+    value: ${{ steps.evaluate.outputs.should-block }}
   main-version:
     description: 'Version from main branch'
-    value: ${{ steps.check-version.outputs.main-version }}
+    value: ${{ steps.get-main-version.outputs.version }}
   pr-version:
     description: 'Version from PR branch'
-    value: ${{ steps.check-version.outputs.pr-version }}
+    value: ${{ steps.get-pr-version.outputs.version }}
+  base-version:
+    description: 'Version from merge base'
+    value: ${{ steps.get-base-version.outputs.version }}
+  pr-modified:
+    description: 'Boolean indicating if PR modified the file'
+    value: ${{ steps.check-pr-modified.outputs.modified }}
+  reason:
+    description: 'Reason for blocking or allowing'
+    value: ${{ steps.evaluate.outputs.reason }}
 
 runs:
   using: 'composite'
   steps:
-    - name: Fetch main branch
+    - name: Fetch branches
       shell: bash
       run: |
-        git fetch origin main --depth=1
+        echo "Fetching main branch and ensuring we have full history..."
+        git fetch origin main --unshallow || git fetch origin main
 
-    - name: Check version files
-      id: check-version
+    - name: Get main branch version
+      id: get-main-version
       shell: bash
       run: |
         FILE_PATH="${{ inputs.file-path }}"
-        
-        # Get version from main branch
         MAIN_VERSION=""
+
         if git show origin/main:"${FILE_PATH}" > /dev/null 2>&1; then
           MAIN_VERSION=$(git show origin/main:"${FILE_PATH}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
-        fi
-        
-        # Get version from current branch
-        PR_VERSION=""
-        if [ -f "${FILE_PATH}" ]; then
-          PR_VERSION=$(head -n 1 "${FILE_PATH}" | tr -d '[:space:]')
-        fi
-        
-        # Check if both files exist
-        if [ -z "$MAIN_VERSION" ] && [ -z "$PR_VERSION" ]; then
-          echo "File ${FILE_PATH} doesn't exist in either branch"
-          echo "mismatch=false" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-        
-        # Check if only one file exists
-        if [ -z "$MAIN_VERSION" ] || [ -z "$PR_VERSION" ]; then
-          echo "File ${FILE_PATH} exists in only one branch"
-          echo "mismatch=true" >> $GITHUB_OUTPUT
-          echo "main-version=${MAIN_VERSION:-missing}" >> $GITHUB_OUTPUT
-          echo "pr-version=${PR_VERSION:-missing}" >> $GITHUB_OUTPUT
+          echo "Main branch has version: ${MAIN_VERSION}"
         else
-          # Compare versions
-          if [ "$MAIN_VERSION" != "$PR_VERSION" ]; then
-            echo "Version mismatch detected"
-            echo "mismatch=true" >> $GITHUB_OUTPUT
-          else
-            echo "Versions match"
-            echo "mismatch=false" >> $GITHUB_OUTPUT
-          fi
-          echo "main-version=$MAIN_VERSION" >> $GITHUB_OUTPUT
-          echo "pr-version=$PR_VERSION" >> $GITHUB_OUTPUT
+          echo "File doesn't exist on main branch"
         fi
 
-    - name: Find existing comment
-      if: steps.check-version.outputs.mismatch == 'true' && inputs.pr-number
-      id: find-comment
-      uses: peter-evans/find-comment@v3
-      with:
-        token: ${{ inputs.token }}
-        issue-number: ${{ inputs.pr-number }}
-        comment-author: 'github-actions[bot]'
-        body-includes: ${{ inputs.comment-title }}
+        echo "version=${MAIN_VERSION}" >> $GITHUB_OUTPUT
 
-    - name: Prepare comment body
-      if: steps.check-version.outputs.mismatch == 'true' && inputs.pr-number
-      id: prepare-comment
+    - name: Get PR version
+      id: get-pr-version
       shell: bash
       run: |
-        COMMENT_BODY="${{ inputs.comment-body-template }}"
-        COMMENT_BODY="${COMMENT_BODY//\{comment_title\}/${{ inputs.comment-title }}}"
-        COMMENT_BODY="${COMMENT_BODY//\{file_path\}/${{ inputs.file-path }}}"
-        COMMENT_BODY="${COMMENT_BODY//\{main_version\}/${{ steps.check-version.outputs.main-version }}}"
-        COMMENT_BODY="${COMMENT_BODY//\{pr_version\}/${{ steps.check-version.outputs.pr-version }}}"
-        COMMENT_BODY="${COMMENT_BODY//\{update_command\}/${{ inputs.update-command }}}"
-        
+        FILE_PATH="${{ inputs.file-path }}"
+        PR_VERSION=""
+
+        if [ -f "${FILE_PATH}" ]; then
+          PR_VERSION=$(head -n 1 "${FILE_PATH}" | tr -d '[:space:]')
+          echo "PR has version: ${PR_VERSION}"
+        else
+          echo "File doesn't exist in PR"
+        fi
+
+        echo "version=${PR_VERSION}" >> $GITHUB_OUTPUT
+
+    - name: Get base version
+      id: get-base-version
+      shell: bash
+      run: |
+        FILE_PATH="${{ inputs.file-path }}"
+        MERGE_BASE=$(git merge-base HEAD origin/main || echo "")
+        BASE_VERSION=""
+
+        if [ -n "$MERGE_BASE" ]; then
+          if git show "${MERGE_BASE}:${FILE_PATH}" > /dev/null 2>&1; then
+            BASE_VERSION=$(git show "${MERGE_BASE}:${FILE_PATH}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+            echo "Merge base has version: ${BASE_VERSION}"
+          else
+            echo "File doesn't exist at merge base"
+          fi
+        else
+          echo "Could not determine merge base"
+        fi
+
+        echo "version=${BASE_VERSION}" >> $GITHUB_OUTPUT
+
+    - name: Check if PR modified the file
+      id: check-pr-modified
+      shell: bash
+      run: |
+        PR_VERSION="${{ steps.get-pr-version.outputs.version }}"
+        BASE_VERSION="${{ steps.get-base-version.outputs.version }}"
+
+        if [ "$PR_VERSION" != "$BASE_VERSION" ]; then
+          echo "PR has modified the file"
+          echo "modified=true" >> $GITHUB_OUTPUT
+        else
+          echo "PR has not modified the file"
+          echo "modified=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Check if branch is allowed to modify versions
+      id: check-allowed-branch
+      shell: bash
+      env:
+        ALLOW_PATTERN: ${{ inputs.allow-pattern }}
+      run: |
+        BRANCH_NAME="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+
+        if [ -n "$ALLOW_PATTERN" ] && echo "$BRANCH_NAME" | grep -qE "$ALLOW_PATTERN"; then
+          echo "Branch '$BRANCH_NAME' matches allow pattern '$ALLOW_PATTERN'"
+          echo "allowed=true" >> $GITHUB_OUTPUT
+        else
+          echo "Branch '$BRANCH_NAME' does not match allow pattern"
+          echo "allowed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Evaluate blocking conditions
+      id: evaluate
+      shell: bash
+      run: |
+        MAIN_VERSION="${{ steps.get-main-version.outputs.version }}"
+        PR_VERSION="${{ steps.get-pr-version.outputs.version }}"
+        BASE_VERSION="${{ steps.get-base-version.outputs.version }}"
+        PR_MODIFIED="${{ steps.check-pr-modified.outputs.modified }}"
+        BRANCH_ALLOWED="${{ steps.check-allowed-branch.outputs.allowed }}"
+
+        SHOULD_BLOCK="false"
+        REASON=""
+
+        # If branch is allowed to modify versions, don't block
+        if [ "$BRANCH_ALLOWED" == "true" ]; then
+          SHOULD_BLOCK="false"
+          REASON="Branch is allowed to modify versions"
+        # If versions match, don't block
+        elif [ "$MAIN_VERSION" == "$PR_VERSION" ]; then
+          SHOULD_BLOCK="false"
+          REASON="Versions match"
+        # If PR hasn't modified the file, don't block
+        elif [ "$PR_MODIFIED" != "true" ]; then
+          SHOULD_BLOCK="false"
+          REASON="PR hasn't modified the version file (will use main's version on merge)"
+        # If both don't exist, don't block
+        elif [ -z "$MAIN_VERSION" ] && [ -z "$PR_VERSION" ]; then
+          SHOULD_BLOCK="false"
+          REASON="Version file doesn't exist in either branch"
+        # If file doesn't exist on main but exists in PR (new file), don't block
+        elif [ -z "$MAIN_VERSION" ] && [ -n "$PR_VERSION" ]; then
+          SHOULD_BLOCK="false"
+          REASON="New version file added (doesn't exist on main)"
+        # Now check blocking conditions - PR has modified the file
+        else
+          # Scenario 1: Invalid feature test - PR changed to something not on main
+          # Scenario 2: Outdated modification - PR changed but is older
+          # Scenario 3: Divergent - both changed to different values
+          SHOULD_BLOCK="true"
+
+          if [ -z "$BASE_VERSION" ]; then
+            REASON="PR introduced version file that doesn't exist at merge base"
+          elif [ "$BASE_VERSION" == "$MAIN_VERSION" ]; then
+            REASON="PR modified version while main hasn't changed (invalid version or test)"
+          else
+            REASON="Both PR and main have modified the version file differently (divergent versions)"
+          fi
+        fi
+
+        echo "Decision: SHOULD_BLOCK=${SHOULD_BLOCK}"
+        echo "Reason: ${REASON}"
+        echo "should-block=${SHOULD_BLOCK}" >> $GITHUB_OUTPUT
+        echo "reason=${REASON}" >> $GITHUB_OUTPUT
+
+    - name: Prepare comment body
+      if: steps.evaluate.outputs.should-block == 'true' && inputs.pr-number
+      id: prepare-comment
+      shell: bash
+      env:
+        TEMPLATE: ${{ inputs.comment-body-template }}
+        TITLE: ${{ inputs.comment-title }}
+        FILEPATH: ${{ inputs.file-path }}
+        MAIN_VER: ${{ steps.get-main-version.outputs.version }}
+        PR_VER: ${{ steps.get-pr-version.outputs.version }}
+        UPDATE_CMD: ${{ inputs.update-command }}
+        REASON: ${{ steps.evaluate.outputs.reason }}
+      run: |
+        # Escape special characters for sed
+        ESCAPED_CMD=$(echo "$UPDATE_CMD" | sed 's|[&/\]|\\&|g')
+
+        # Perform replacements using sed for more reliable substitution
+        COMMENT_BODY="$TEMPLATE"
+        COMMENT_BODY=$(echo "$COMMENT_BODY" | sed "s|{comment_title}|$TITLE|g")
+        COMMENT_BODY=$(echo "$COMMENT_BODY" | sed "s|{file_path}|$FILEPATH|g")
+        COMMENT_BODY=$(echo "$COMMENT_BODY" | sed "s|{main_version}|$MAIN_VER|g")
+        COMMENT_BODY=$(echo "$COMMENT_BODY" | sed "s|{pr_version}|$PR_VER|g")
+        COMMENT_BODY=$(echo "$COMMENT_BODY" | sed "s|{update_command}|$ESCAPED_CMD|g")
+
+        # Add reason
+        COMMENT_BODY="${COMMENT_BODY}
+
+        **Reason:** ${REASON}"
+
         # Use EOF delimiter for multiline output
         echo "body<<EOF" >> $GITHUB_OUTPUT
         echo "$COMMENT_BODY" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
-    - name: Create or update comment
-      if: steps.check-version.outputs.mismatch == 'true' && inputs.pr-number
-      uses: peter-evans/create-or-update-comment@v4
-      with:
-        token: ${{ inputs.token }}
-        issue-number: ${{ inputs.pr-number }}
-        comment-id: ${{ steps.find-comment.outputs.comment-id }}
-        edit-mode: replace
-        body: ${{ steps.prepare-comment.outputs.body }}
-
-    - name: Remove comment if versions match
-      if: steps.check-version.outputs.mismatch == 'false' && inputs.pr-number && steps.find-comment.outputs.comment-id
+    - name: Manage PR review and comment
+      if: steps.evaluate.outputs.should-block == 'true' && inputs.pr-number
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
+        REVIEW_BODY: ${{ steps.prepare-comment.outputs.body }}
+        REASON: ${{ steps.evaluate.outputs.reason }}
+        FILE_PATH: ${{ inputs.file-path }}
+        PR_NUMBER: ${{ inputs.pr-number }}
       run: |
-        gh api \
-          --method DELETE \
-          "/repos/${{ github.repository }}/issues/comments/${{ steps.find-comment.outputs.comment-id }}"
+        # Get the commit SHA for the PR head
+        PR_HEAD_SHA=$(gh pr view "${PR_NUMBER}" --json headRefOid -q .headRefOid)
+
+        # Check if we already have a review from the bot
+        EXISTING_REVIEW=$(gh api "/repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
+          --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "CHANGES_REQUESTED") | .id' | head -1)
+
+        # Check for existing comment from bot on this file
+        echo "Checking for existing review comments on ${FILE_PATH}..."
+        EXISTING_COMMENT_ID=$(gh api "/repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments" \
+          --jq ".[] | select(.path == \"${FILE_PATH}\" and .user.login == \"github-actions[bot]\") | .id" | head -1)
+
+        if [ -n "$EXISTING_COMMENT_ID" ]; then
+          echo "Updating existing comment (ID: ${EXISTING_COMMENT_ID})..."
+          # Update the existing comment
+          cat > update_comment.json <<JSONEOF
+        {
+          "body": $(echo "$REVIEW_BODY" | jq -Rs .)
+        }
+        JSONEOF
+
+          gh api \
+            --method PATCH \
+            "/repos/${{ github.repository }}/pulls/comments/${EXISTING_COMMENT_ID}" \
+            --input update_comment.json
+        else
+          # No existing comment, need to create one
+          if [ -z "$EXISTING_REVIEW" ]; then
+            echo "Creating new review with comment..."
+            # Create the review request JSON
+            cat > review_request.json <<JSONEOF
+        {
+          "commit_id": "${PR_HEAD_SHA}",
+          "body": "Version check failed - ${REASON}",
+          "event": "COMMENT",
+          "comments": [
+            {
+              "path": "${FILE_PATH}",
+              "line": 1,
+              "body": $(echo "$REVIEW_BODY" | jq -Rs .)
+            }
+          ]
+        }
+        JSONEOF
+
+            # Create the review
+            gh api \
+              --method POST \
+              "/repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
+              --input review_request.json
+          else
+            echo "Review exists, creating new comment..."
+            # Just add a new comment on the file
+            cat > comment_request.json <<JSONEOF
+        {
+          "body": $(echo "$REVIEW_BODY" | jq -Rs .),
+          "commit_id": "${PR_HEAD_SHA}",
+          "path": "${FILE_PATH}",
+          "line": 1
+        }
+        JSONEOF
+
+            gh api \
+              --method POST \
+              "/repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments" \
+              --input comment_request.json
+          fi
+        fi
+
+    - name: Fail if should block
+      if: steps.evaluate.outputs.should-block == 'true'
+      shell: bash
+      run: |
+        echo "::error::Version check failed in ${{ inputs.file-path }}"
+        echo "::error::Reason: ${{ steps.evaluate.outputs.reason }}"
+        echo "Main version: ${{ steps.get-main-version.outputs.version }}"
+        echo "PR version: ${{ steps.get-pr-version.outputs.version }}"
+        echo "Base version: ${{ steps.get-base-version.outputs.version }}"
+        exit 1
