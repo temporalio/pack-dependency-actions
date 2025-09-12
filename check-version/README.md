@@ -19,7 +19,7 @@ A GitHub Action that checks and compares dependency versions between the main br
 ### Basic Usage
 
 ```yaml
-- uses: temporalio/pack-dependency-actions/check-version@main
+- uses: temporalio/pack-dependency-actions/check-version@v1
   with:
     pr-number: ${{ github.event.pull_request.number }}
 ```
@@ -27,7 +27,7 @@ A GitHub Action that checks and compares dependency versions between the main br
 ### Advanced Usage
 
 ```yaml
-- uses: temporalio/pack-dependency-actions/check-version@main
+- uses: temporalio/pack-dependency-actions/check-version@v1
   with:
     file-path: '.ui-sha'
     pr-number: ${{ github.event.pull_request.number }}
@@ -142,7 +142,7 @@ jobs:
       - name: Check UI pack
         id: check-ui
         continue-on-error: true
-        uses: temporalio/pack-dependency-actions/check-version@main
+        uses: temporalio/pack-dependency-actions/check-version@v1
         with:
           file-path: '.ui-sha'
           pr-number: ${{ github.event.pull_request.number }}
@@ -150,7 +150,7 @@ jobs:
       - name: Check Registry pack
         id: check-registry
         continue-on-error: true
-        uses: temporalio/pack-dependency-actions/check-version@main
+        uses: temporalio/pack-dependency-actions/check-version@v1
         with:
           file-path: '.registry-sha'
           pr-number: ${{ github.event.pull_request.number }}
