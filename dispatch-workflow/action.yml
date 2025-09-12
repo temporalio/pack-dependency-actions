@@ -20,135 +20,102 @@ inputs:
     description: 'JSON string of inputs to pass to the workflow'
     required: false
     default: '{}'
-  wait-for-completion:
-    description: 'Wait for the workflow to complete before returning'
+  add-commit-comment:
+    description: 'Add a comment to the commit on push events'
     required: false
     default: 'false'
-  wait-timeout:
-    description: 'Maximum time to wait for workflow completion in seconds'
+  commit-comment-template:
+    description: 'Template for commit comment. Available variables: {repository}, {workflow}, {ref}'
     required: false
-    default: '300'
-  wait-interval:
-    description: 'Interval between status checks in seconds'
+    default: '🚀 Triggered workflow `{workflow}` in {repository} on {ref}'
+  log-output:
+    description: 'Log the workflow dispatch result'
     required: false
-    default: '10'
+    default: 'true'
+  log-title:
+    description: 'Title for the log output'
+    required: false
+    default: 'Workflow Dispatch'
 
 outputs:
-  workflow-id:
-    description: 'ID of the dispatched workflow run'
-    value: ${{ steps.dispatch.outputs.workflow-id }}
-  workflow-url:
-    description: 'URL of the dispatched workflow run'
-    value: ${{ steps.dispatch.outputs.workflow-url }}
-  status:
-    description: 'Final status if wait-for-completion is true'
-    value: ${{ steps.wait.outputs.status }}
-  conclusion:
-    description: 'Final conclusion if wait-for-completion is true'
-    value: ${{ steps.wait.outputs.conclusion }}
+  dispatched:
+    description: 'Whether the workflow was successfully dispatched'
+    value: ${{ steps.dispatch.outputs.dispatched }}
 
 runs:
   using: 'composite'
   steps:
-    - name: Parse inputs
-      id: parse
-      shell: bash
-      run: |
-        # Parse the workflow inputs JSON and create workflow_dispatch payload
-        echo "Preparing to dispatch workflow ${{ inputs.workflow }} in ${{ inputs.repository }}"
-        
-        # Create the payload with proper JSON formatting
-        if [ -z "${{ inputs.inputs }}" ] || [ "${{ inputs.inputs }}" == "{}" ]; then
-          echo "payload={\"ref\":\"${{ inputs.ref }}\"}" >> $GITHUB_OUTPUT
-        else
-          # Escape the inputs for safe passing
-          ESCAPED_INPUTS=$(echo '${{ inputs.inputs }}' | jq -c '.')
-          echo "payload={\"ref\":\"${{ inputs.ref }}\",\"inputs\":$ESCAPED_INPUTS}" >> $GITHUB_OUTPUT
-        fi
-        
-        echo "Payload prepared for dispatch"
-
     - name: Dispatch workflow
       id: dispatch
       shell: bash
       run: |
-        echo "Dispatching workflow..."
-        
-        # Use gh workflow run command which handles JSON properly
-        gh workflow run "${{ inputs.workflow }}" \
-          --repo "${{ inputs.repository }}" \
-          --ref "${{ inputs.ref }}" \
-          --json <<< '${{ inputs.inputs }}'
-        
-        # Wait a moment for the workflow to be created
-        sleep 5
-        
-        # Get the workflow run ID
-        echo "Getting workflow run ID..."
-        workflow_runs=$(gh api \
+        echo "Dispatching workflow '${{ inputs.workflow }}' in ${{ inputs.repository }}..."
+
+        # Use GitHub API directly for workflow dispatch
+        response=$(gh api \
+          --method POST \
           -H "Accept: application/vnd.github+json" \
-          "/repos/${{ inputs.repository }}/actions/workflows/${{ inputs.workflow }}/runs?per_page=1" \
-          --jq '.workflow_runs[0]')
-        
-        workflow_id=$(echo "$workflow_runs" | jq -r '.id')
-        workflow_url=$(echo "$workflow_runs" | jq -r '.html_url')
-        
-        echo "Workflow dispatched successfully"
-        echo "Workflow Run ID: $workflow_id"
-        echo "Workflow URL: $workflow_url"
-        
-        echo "workflow-id=$workflow_id" >> $GITHUB_OUTPUT
-        echo "workflow-url=$workflow_url" >> $GITHUB_OUTPUT
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          /repos/${{ inputs.repository }}/actions/workflows/${{ inputs.workflow }}/dispatches \
+          -f ref='${{ inputs.ref }}' \
+          -f inputs='${{ inputs.inputs }}' 2>&1) || dispatch_failed=true
+
+        # Check if dispatch was successful (API returns 204 No Content on success)
+        if [ -z "$response" ] || [[ "$response" == "" ]]; then
+          echo "✅ Workflow dispatch request sent successfully"
+          echo "dispatched=true" >> $GITHUB_OUTPUT
+        else
+          echo "Response: $response"
+          # Check if it's an error
+          if [ "$dispatch_failed" = "true" ] || echo "$response" | grep -q "error\|Error\|failed\|Failed"; then
+            echo "::error::Failed to dispatch workflow"
+            echo "dispatched=false" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            # Sometimes there's output but it's not an error
+            echo "✅ Workflow dispatch request sent"
+            echo "dispatched=true" >> $GITHUB_OUTPUT
+          fi
+        fi
       env:
         GH_TOKEN: ${{ inputs.token }}
 
-    - name: Wait for workflow completion
-      id: wait
-      if: inputs.wait-for-completion == 'true'
+    - name: Log workflow dispatch
+      if: inputs.log-output == 'true' && always()
       shell: bash
       run: |
-        workflow_id="${{ steps.dispatch.outputs.workflow-id }}"
-        max_wait=${{ inputs.wait-timeout }}
-        interval=${{ inputs.wait-interval }}
-        elapsed=0
-        
-        echo "Waiting for workflow $workflow_id to complete..."
-        echo "Maximum wait time: ${max_wait}s, check interval: ${interval}s"
-        
-        while [ $elapsed -lt $max_wait ]; do
-          run_status=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ inputs.token }}" \
-            "/repos/${{ inputs.repository }}/actions/runs/$workflow_id" \
-            --jq '.status')
-          
-          run_conclusion=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ inputs.token }}" \
-            "/repos/${{ inputs.repository }}/actions/runs/$workflow_id" \
-            --jq '.conclusion // "pending"')
-          
-          echo "[$elapsed/${max_wait}s] Status: $run_status, Conclusion: $run_conclusion"
-          
-          if [ "$run_status" == "completed" ]; then
-            echo "Workflow completed with conclusion: $run_conclusion"
-            echo "status=$run_status" >> $GITHUB_OUTPUT
-            echo "conclusion=$run_conclusion" >> $GITHUB_OUTPUT
-            
-            if [ "$run_conclusion" != "success" ]; then
-              echo "::warning::Workflow completed with conclusion: $run_conclusion"
-              exit 1
-            fi
-            exit 0
+        echo "## ${{ inputs.log-title }}"
+        echo ""
+        if [ "${{ steps.dispatch.outputs.dispatched }}" == "true" ]; then
+          echo "✅ Successfully dispatched workflow"
+          echo "- **Repository:** ${{ inputs.repository }}"
+          echo "- **Workflow:** ${{ inputs.workflow }}"
+          echo "- **Reference:** ${{ inputs.ref }}"
+          if [ '${{ inputs.inputs }}' != '{}' ] && [ -n '${{ inputs.inputs }}' ]; then
+            echo "- **Inputs:** \`${{ inputs.inputs }}\`"
           fi
-          
-          sleep $interval
-          elapsed=$((elapsed + interval))
-        done
-        
-        echo "::error::Timeout waiting for workflow to complete"
-        echo "status=timeout" >> $GITHUB_OUTPUT
-        echo "conclusion=timeout" >> $GITHUB_OUTPUT
-        exit 1
+        else
+          echo "❌ Failed to dispatch workflow"
+          echo "- **Repository:** ${{ inputs.repository }}"
+          echo "- **Workflow:** ${{ inputs.workflow }}"
+        fi
+
+    - name: Add comment to commit
+      if: github.event_name == 'push' && steps.dispatch.outputs.dispatched == 'true' && inputs.add-commit-comment == 'true'
+      shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
+      run: |
+        # Replace template variables
+        COMMENT="${{ inputs.commit-comment-template }}"
+        COMMENT="${COMMENT//\{repository\}/${{ inputs.repository }}}"
+        COMMENT="${COMMENT//\{workflow\}/${{ inputs.workflow }}}"
+        COMMENT="${COMMENT//\{ref\}/${{ inputs.ref }}}"
+
+        # Create a comment on the commit
+        gh api \
+          --method POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          /repos/${{ github.repository }}/commits/${{ github.sha }}/comments \
+          -f body="$COMMENT"

@@ -153,7 +153,7 @@ Sweeps all open PRs to check version consistency across the repository.
 ### Automation Actions
 
 #### dispatch-workflow
-Triggers workflows in remote repositories.
+Triggers workflows in remote repositories with optional logging and commit notifications.
 
 **Usage:**
 ```yaml
@@ -163,14 +163,27 @@ Triggers workflows in remote repositories.
     repository: 'owner/repo'
     workflow: 'update-dependencies.yml'
     inputs: '{"target-sha": "${{ github.sha }}"}'
-    wait-for-completion: true
 ```
 
 **Key Features:**
 - Triggers workflows in other repositories
 - Pass custom inputs to the target workflow
-- Optional waiting for workflow completion
-- Returns workflow run ID and URL
+- Optional commit comments with customizable templates
+- Configurable logging with success/failure indicators
+- Simple and reliable - doesn't try to track the workflow run
+
+**Enhanced Usage with Notifications:**
+```yaml
+- uses: temporalio/pack-dependency-actions/dispatch-workflow@v1
+  with:
+    token: ${{ secrets.TOKEN }}
+    repository: 'org/downstream'
+    workflow: 'process.yml'
+    inputs: '{"sha": "${{ github.sha }}"}'
+    add-commit-comment: true
+    commit-comment-template: '🚀 Triggered `{workflow}` in {repository} on {ref}'
+    log-title: 'Downstream Process Triggered'
+```
 
 **Common Use Case:**
 Trigger dependency update workflows in downstream repositories when upstream changes are merged:
@@ -178,9 +191,12 @@ Trigger dependency update workflows in downstream repositories when upstream cha
 # In frontend-workflow-runner repo, on push to main:
 - uses: temporalio/pack-dependency-actions/dispatch-workflow@v1
   with:
+    token: ${{ secrets.TOKEN }}
     repository: 'temporalio/frontend-shared-workflows'
     workflow: 'update-temporal-workers.yml'
-    inputs: '{"target-sha": "${{ github.sha }}"}'
+    inputs: '{"target-sha": "${{ github.sha }}", "mode": "release"}'
+    add-commit-comment: true
+    log-title: 'Downstream Update Triggered'
 ```
 
 **Note:** PR reuse is handled automatically by `peter-evans/create-pull-request` in the target workflow when using the same branch name. Consider implementing a "mode" parameter in your target workflow to control whether to create test PRs (with SHA in branch name) or release PRs (with fixed branch name for automatic updates).
