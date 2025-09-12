@@ -1,0 +1,32 @@
+{
+  "name": "@temporalio/danger-pack-version-check",
+  "version": "1.0.0",
+  "description": "DangerJS plugin for checking pack version files in PRs",
+  "main": "pack-version-check.js",
+  "types": "pack-version-check.d.ts",
+  "files": [
+    "pack-version-check.js",
+    "pack-version-check.ts",
+    "pack-version-check.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc pack-version-check.ts --declaration --esModuleInterop"
+  },
+  "keywords": [
+    "danger",
+    "danger-plugin",
+    "version-check",
+    "pack-dependencies"
+  ],
+  "author": "Temporal Technologies",
+  "license": "MIT",
+  "peerDependencies": {
+    "danger": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "danger": "^11.0.0",
+    "typescript": "^5.0.0"
+  }
+}
