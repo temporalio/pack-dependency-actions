@@ -81,15 +81,7 @@ template: |
   
   $CHANGES
   
-  ### Version Tags
-  
-  You can reference this release using:
-  - Full version: `@v$RESOLVED_VERSION`
-  - Major version: `@v$MAJOR` (automatically updated)
-  
   **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
-  
-  ---
   
   ### Contributors
   
