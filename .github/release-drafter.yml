@@ -77,41 +77,15 @@ exclude-labels:
   - 'release'
 
 template: |
-  ## Pack Dependency Actions v$RESOLVED_VERSION
-
-  ### What's Changed
+  ## What's Changed
   
   $CHANGES
   
-  ### 📦 Available Actions
-  
-  This release includes the following actions:
-  - **check-version**: Version comparison with PR commenting
-  - **version-sweep**: Batch PR version checking  
-  - **generate-pr**: Automated PR generation with packed dependencies
-  - **auto-delete**: Stale PR cleanup
-  
-  ### 📋 Usage
-  
-  ```yaml
-  # Check version in PR
-  uses: $OWNER/$REPOSITORY/check-version@v$RESOLVED_VERSION
-  
-  # Sweep all PRs
-  uses: $OWNER/$REPOSITORY/version-sweep@v$RESOLVED_VERSION
-  
-  # Generate update PR
-  uses: $OWNER/$REPOSITORY/generate-pr@v$RESOLVED_VERSION
-  
-  # Auto-delete stale PRs
-  uses: $OWNER/$REPOSITORY/auto-delete@v$RESOLVED_VERSION
-  ```
-  
-  ### 🏷️ Version Tags
+  ### Version Tags
   
   You can reference this release using:
   - Full version: `@v$RESOLVED_VERSION`
-  - Major version: `@v$RESOLVED_VERSION_MAJOR` (automatically updated)
+  - Major version: `@v$MAJOR` (automatically updated)
   
   **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
   
