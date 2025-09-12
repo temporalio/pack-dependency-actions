@@ -52,13 +52,13 @@ runs:
         echo "Dispatching workflow '${{ inputs.workflow }}' in ${{ inputs.repository }}..."
 
         # Use GitHub API directly for workflow dispatch
+        # Note: --input expects the raw JSON to be passed, not -f which treats it as a string
         response=$(gh api \
           --method POST \
           -H "Accept: application/vnd.github+json" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
           /repos/${{ inputs.repository }}/actions/workflows/${{ inputs.workflow }}/dispatches \
-          -f ref='${{ inputs.ref }}' \
-          -f inputs='${{ inputs.inputs }}' 2>&1) || dispatch_failed=true
+          --input - <<< '{"ref": "${{ inputs.ref }}", "inputs": ${{ inputs.inputs }}}' 2>&1) || dispatch_failed=true
 
         # Check if dispatch was successful (API returns 204 No Content on success)
         if [ -z "$response" ] || [[ "$response" == "" ]]; then
