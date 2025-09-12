@@ -116,31 +116,33 @@ jobs:
               release_id: releaseId
             });
 
-            const summary = `## 🎉 Release ${version} Published!
-
-### ✅ Post-release tasks completed:
-- Updated ${majorVersion} tag to point to ${version}
-- Updated README examples to use ${majorVersion}
-
-### 📦 Actions available at:
-- \`${{ github.repository }}/check-version@${majorVersion}\`
-- \`${{ github.repository }}/validate-sha@${majorVersion}\`
-- \`${{ github.repository }}/download-source@${majorVersion}\`
-- \`${{ github.repository }}/build-and-pack@${majorVersion}\`
-- \`${{ github.repository }}/move-pack@${majorVersion}\`
-- \`${{ github.repository }}/update-dependencies@${majorVersion}\`
-- \`${{ github.repository }}/generate-changelog@${majorVersion}\`
-- \`${{ github.repository }}/dispatch-workflow@${majorVersion}\`
-- \`${{ github.repository }}/auto-delete@${majorVersion}\`
-
-### 📖 Usage:
-Users can now reference this release using either:
-- Full version: \`@${version}\`
-- Major version: \`@${majorVersion}\` (recommended for automatic updates)
-
----
-
-${release.body || ''}`;
+            const summary = [
+              `## 🎉 Release ${version} Published!`,
+              '',
+              '### ✅ Post-release tasks completed:',
+              `- Updated ${majorVersion} tag to point to ${version}`,
+              `- Updated README examples to use ${majorVersion}`,
+              '',
+              '### 📦 Actions available at:',
+              `- \`${{ github.repository }}/check-version@${majorVersion}\``,
+              `- \`${{ github.repository }}/validate-sha@${majorVersion}\``,
+              `- \`${{ github.repository }}/download-source@${majorVersion}\``,
+              `- \`${{ github.repository }}/build-and-pack@${majorVersion}\``,
+              `- \`${{ github.repository }}/move-pack@${majorVersion}\``,
+              `- \`${{ github.repository }}/update-dependencies@${majorVersion}\``,
+              `- \`${{ github.repository }}/generate-changelog@${majorVersion}\``,
+              `- \`${{ github.repository }}/dispatch-workflow@${majorVersion}\``,
+              `- \`${{ github.repository }}/auto-delete@${majorVersion}\``,
+              '',
+              '### 📖 Usage:',
+              'Users can now reference this release using either:',
+              `- Full version: \`@${version}\``,
+              `- Major version: \`@${majorVersion}\` (recommended for automatic updates)`,
+              '',
+              '---',
+              '',
+              release.body || ''
+            ].join('\n');
 
             // Update the release with the summary
             await github.rest.repos.updateRelease({
