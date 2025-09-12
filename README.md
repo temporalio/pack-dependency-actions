@@ -21,7 +21,7 @@ Validates and resolves target SHA for a repository, preventing accidental rollba
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/validate-sha@v1
+- uses: temporalio/pack-dependency-actions/validate-sha@v0
   with:
     repository: 'owner/repo'
     target-sha: ${{ github.event.inputs.target-sha }}
@@ -34,7 +34,7 @@ Downloads source code from a repository at a specific SHA.
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/download-source@v1
+- uses: temporalio/pack-dependency-actions/download-source@v0
   with:
     repository: 'owner/repo'
     sha: ${{ steps.validate.outputs.resolved-sha }}
@@ -46,7 +46,7 @@ Builds and packs a project from source.
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/build-and-pack@v1
+- uses: temporalio/pack-dependency-actions/build-and-pack@v0
   with:
     source-path: 'source'
     build-command: 'pnpm build'
@@ -58,7 +58,7 @@ Moves and renames packed tarballs with SHA for traceability.
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/move-pack@v1
+- uses: temporalio/pack-dependency-actions/move-pack@v0
   with:
     source-path: 'source'
     pack-destination: './packs'
@@ -72,7 +72,7 @@ Updates package.json dependencies to use packed tarballs.
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/update-dependencies@v1
+- uses: temporalio/pack-dependency-actions/update-dependencies@v0
   with:
     package-names: '@org/package1,@org/package2'
     pack-files: './packs/package1.tgz,./packs/package2.tgz'
@@ -84,7 +84,7 @@ Generates a changelog between two commits.
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/generate-changelog@v1
+- uses: temporalio/pack-dependency-actions/generate-changelog@v0
   with:
     repository: 'owner/repo'
     from-sha: ${{ steps.validate.outputs.last-sha }}
@@ -107,7 +107,7 @@ Checks and compares dependency versions between main branch and PRs. Creates non
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/check-version@v1
+- uses: temporalio/pack-dependency-actions/check-version@v0
   with:
     file-path: '.ui-sha'
     pr-number: ${{ github.event.pull_request.number }}
@@ -143,7 +143,7 @@ Sweeps all open PRs to check version consistency across the repository.
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/version-sweep@v1
+- uses: temporalio/pack-dependency-actions/version-sweep@v0
   with:
     file-path: '.ui-sha'
     base-branch: 'main'
@@ -157,7 +157,7 @@ Triggers workflows in remote repositories.
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/dispatch-workflow@v1
+- uses: temporalio/pack-dependency-actions/dispatch-workflow@v0
   with:
     token: ${{ secrets.GITHUB_TOKEN }}
     repository: 'owner/repo'
@@ -176,7 +176,7 @@ Triggers workflows in remote repositories.
 Trigger dependency update workflows in downstream repositories when upstream changes are merged:
 ```yaml
 # In frontend-workflow-runner repo, on push to main:
-- uses: temporalio/pack-dependency-actions/dispatch-workflow@v1
+- uses: temporalio/pack-dependency-actions/dispatch-workflow@v0
   with:
     repository: 'temporalio/frontend-shared-workflows'
     workflow: 'update-temporal-workers.yml'
@@ -190,7 +190,7 @@ Automatically closes and deletes stale generated PRs to keep the repository clea
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/auto-delete@v1
+- uses: temporalio/pack-dependency-actions/auto-delete@v0
   with:
     days-old: 7
     labels-filter: 'test-ui,automated'
@@ -222,7 +222,7 @@ jobs:
       # 1. Validate the target SHA
       - name: Validate SHA
         id: validate
-        uses: temporalio/pack-dependency-actions/validate-sha@v1
+        uses: temporalio/pack-dependency-actions/validate-sha@v0
         with:
           repository: temporalio/frontend-workflow-runner
           target-sha: ${{ github.event.inputs.target-sha }}
@@ -231,14 +231,14 @@ jobs:
 
       # 2. Download the source code
       - name: Download source
-        uses: temporalio/pack-dependency-actions/download-source@v1
+        uses: temporalio/pack-dependency-actions/download-source@v0
         with:
           repository: temporalio/frontend-workflow-runner
           sha: ${{ steps.validate.outputs.resolved-sha }}
 
       # 3. Build and pack multiple packages
       - name: Build and pack registry
-        uses: temporalio/pack-dependency-actions/build-and-pack@v1
+        uses: temporalio/pack-dependency-actions/build-and-pack@v0
         with:
           source-path: source
           build-command: 'pnpm -r build'
@@ -246,7 +246,7 @@ jobs:
 
       # 4. Move packed files with SHA naming
       - name: Move registry pack
-        uses: temporalio/pack-dependency-actions/move-pack@v1
+        uses: temporalio/pack-dependency-actions/move-pack@v0
         with:
           source-path: source
           pack-destination: ./packs
@@ -255,14 +255,14 @@ jobs:
 
       # 5. Update package.json dependencies
       - name: Update dependencies
-        uses: temporalio/pack-dependency-actions/update-dependencies@v1
+        uses: temporalio/pack-dependency-actions/update-dependencies@v0
         with:
           package-names: '@temporal-workers/registry,@temporal-workers/ui'
           pack-files: './packs/temporal-workers-registry-${{ steps.validate.outputs.short-sha }}.tgz,./packs/temporal-workers-ui-${{ steps.validate.outputs.short-sha }}.tgz'
 
       # 6. Generate changelog
       - name: Generate changelog
-        uses: temporalio/pack-dependency-actions/generate-changelog@v1
+        uses: temporalio/pack-dependency-actions/generate-changelog@v0
         with:
           repository: temporalio/frontend-workflow-runner
           from-sha: ${{ steps.validate.outputs.last-sha }}
@@ -345,12 +345,12 @@ Most actions share these common parameters:
 
 1. Reference the actions directly from this repository:
    ```yaml
-   uses: temporalio/pack-dependency-actions/action-name@v1
+   uses: temporalio/pack-dependency-actions/action-name@v0
    ```
 
 2. Or fork to your organization for customization:
    ```yaml
-   uses: your-org/pack-dependency-actions/action-name@v1
+   uses: your-org/pack-dependency-actions/action-name@v0
    ```
 
 3. Add necessary secrets:
