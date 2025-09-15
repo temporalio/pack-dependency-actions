@@ -12,7 +12,7 @@ This repository provides individual, focused actions rather than composite workf
 
 ## Current Actions
 
-This repository provides 9 specialized actions that can be composed together to create complete dependency management workflows:
+This repository provides 11 specialized actions that can be composed together to create complete dependency management workflows:
 
 ### Core Actions
 
@@ -80,7 +80,7 @@ Updates package.json dependencies to use packed tarballs.
 ```
 
 #### generate-changelog
-Generates a changelog between two commits.
+Generates a changelog between two commits. [Full documentation →](./generate-changelog/README.md)
 
 **Usage:**
 ```yaml
@@ -92,10 +92,37 @@ Generates a changelog between two commits.
     format: 'markdown'
 ```
 
+### Version Management Actions
+
+#### analyze-commits-for-bump
+Analyzes commits to determine semantic version bump type (major/minor/patch) based on conventional commit patterns. [Full documentation →](./analyze-commits-for-bump/README.md)
+
+**Usage:**
+```yaml
+- uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@main
+  with:
+    from-ref: 'v1.0.0'
+    to-ref: 'HEAD'
+    major-patterns: 'BREAKING CHANGE,BREAKING'
+    minor-patterns: 'feat,feature,add'
+```
+
+#### calculate-semantic-version
+Calculates new semantic version based on current version and bump type or specific version override. [Full documentation →](./calculate-semantic-version/README.md)
+
+**Usage:**
+```yaml
+- uses: temporalio/pack-dependency-actions/calculate-semantic-version@main
+  with:
+    current-version: '1.2.3'
+    bump-type: 'minor'
+    # or specific-version: '2.0.0'
+```
+
 ### PR Management Actions
 
 #### check-version
-Checks and compares dependency versions between main branch and PRs. Creates non-blocking review comments when versions differ, with smart deduplication and support for new files.
+Checks and compares dependency versions between main branch and PRs. Creates non-blocking review comments when versions differ, with smart deduplication and support for new files. [Full documentation →](./check-version/README.md)
 
 **Key Features:**
 - Non-blocking COMMENT reviews (not REQUEST_CHANGES)
