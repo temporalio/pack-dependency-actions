@@ -108,9 +108,9 @@ runs:
       run: |
         # Replace template variables
         COMMENT="${{ inputs.commit-comment-template }}"
-        COMMENT="${COMMENT//'{repository}'/${{ inputs.repository }}}"
-        COMMENT="${COMMENT//'{workflow}'/${{ inputs.workflow }}}"
-        COMMENT="${COMMENT//'{ref}'/${{ inputs.ref }}}"
+        COMMENT="${COMMENT//\{repository\}/${{ inputs.repository }}}"
+        COMMENT="${COMMENT//\{workflow\}/${{ inputs.workflow }}}"
+        COMMENT="${COMMENT//\{ref\}/${{ inputs.ref }}}"
 
         # Create a comment on the commit
         gh api \
