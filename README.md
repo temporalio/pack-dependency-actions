@@ -99,7 +99,7 @@ Analyzes commits to determine semantic version bump type (major/minor/patch) bas
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@main
+- uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@v1
   with:
     from-ref: 'v1.0.0'
     to-ref: 'HEAD'
@@ -112,7 +112,7 @@ Calculates new semantic version based on current version and bump type or specif
 
 **Usage:**
 ```yaml
-- uses: temporalio/pack-dependency-actions/calculate-semantic-version@main
+- uses: temporalio/pack-dependency-actions/calculate-semantic-version@v1
   with:
     current-version: '1.2.3'
     bump-type: 'minor'

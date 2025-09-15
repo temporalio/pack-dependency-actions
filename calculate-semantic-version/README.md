@@ -16,7 +16,7 @@ A GitHub Action that calculates new semantic versions based on the current versi
 ### Basic Usage
 
 ```yaml
-- uses: temporalio/pack-dependency-actions/calculate-semantic-version@main
+- uses: temporalio/pack-dependency-actions/calculate-semantic-version@v1
   with:
     current-version: '1.2.3'
     bump-type: 'minor'
@@ -25,7 +25,7 @@ A GitHub Action that calculates new semantic versions based on the current versi
 ### With Specific Version
 
 ```yaml
-- uses: temporalio/pack-dependency-actions/calculate-semantic-version@main
+- uses: temporalio/pack-dependency-actions/calculate-semantic-version@v1
   with:
     current-version: 'v1.2.3'
     specific-version: '2.0.0'
@@ -34,7 +34,7 @@ A GitHub Action that calculates new semantic versions based on the current versi
 ### With Prerelease
 
 ```yaml
-- uses: temporalio/pack-dependency-actions/calculate-semantic-version@main
+- uses: temporalio/pack-dependency-actions/calculate-semantic-version@v1
   with:
     current-version: '1.2.3'
     bump-type: 'minor'
@@ -57,7 +57,7 @@ jobs:
       
       - name: Determine bump type
         id: analyze
-        uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@main
+        uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@v1
         with:
           from-ref: 'v${{ steps.current.outputs.version }}'
       
@@ -253,7 +253,7 @@ jobs:
       
       - name: Determine bump type
         id: bump-type
-        uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@main
+        uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@v1
         if: inputs.bump-type == 'auto' || inputs.bump-type == ''
         with:
           from-ref: "v${{ steps.current.outputs.version }}"

@@ -15,7 +15,7 @@ A GitHub Action that analyzes commits between two Git references to determine th
 ### Basic Usage
 
 ```yaml
-- uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@main
+- uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@v1
   with:
     from-ref: 'v1.0.0'
     to-ref: 'HEAD'
@@ -24,7 +24,7 @@ A GitHub Action that analyzes commits between two Git references to determine th
 ### Advanced Usage
 
 ```yaml
-- uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@main
+- uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@v1
   with:
     from-ref: ${{ steps.last-tag.outputs.tag }}
     to-ref: 'main'
@@ -58,7 +58,7 @@ jobs:
           to-ref: HEAD
       
       - name: Calculate new version
-        uses: temporalio/pack-dependency-actions/calculate-semantic-version@main
+        uses: temporalio/pack-dependency-actions/calculate-semantic-version@v1
         with:
           current-version: ${{ steps.last-tag.outputs.tag }}
           bump-type: ${{ steps.analyze.outputs.bump-type }}
@@ -146,7 +146,7 @@ The action determines the bump type using the following precedence:
 You can customize the patterns to match your project's commit conventions:
 
 ```yaml
-- uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@main
+- uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@v1
   with:
     from-ref: ${{ steps.last-tag.outputs.tag }}
     # Angular commit style
@@ -201,13 +201,13 @@ jobs:
       
       - name: Analyze commits
         id: analyze
-        uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@main
+        uses: temporalio/pack-dependency-actions/analyze-commits-for-bump@v1
         with:
           from-ref: ${{ steps.current.outputs.version }}
       
       - name: Generate changelog
         id: changelog
-        uses: temporalio/pack-dependency-actions/generate-changelog@main
+        uses: temporalio/pack-dependency-actions/generate-changelog@v1
         with:
           repository: ${{ github.repository }}
           from-sha: ${{ steps.current.outputs.version }}
