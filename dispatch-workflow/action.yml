@@ -106,11 +106,11 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.token }}
       run: |
-        # Replace template variables
+        # Replace template variables using sed for more reliable substitution
         COMMENT="${{ inputs.commit-comment-template }}"
-        COMMENT="${COMMENT//\{repository\}/${{ inputs.repository }}}"
-        COMMENT="${COMMENT//\{workflow\}/${{ inputs.workflow }}}"
-        COMMENT="${COMMENT//\{ref\}/${{ inputs.ref }}}"
+        COMMENT=$(echo "$COMMENT" | sed "s|{repository}|${{ inputs.repository }}|g")
+        COMMENT=$(echo "$COMMENT" | sed "s|{workflow}|${{ inputs.workflow }}|g")
+        COMMENT=$(echo "$COMMENT" | sed "s|{ref}|${{ inputs.ref }}|g")
 
         # Create a comment on the commit
         gh api \
