@@ -106,12 +106,19 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.token }}
       run: |
-        # Replace template variables using sed for more reliable substitution
-        # Use printf to avoid issues with backticks and special characters
-        COMMENT=$(printf '%s' "${{ inputs.commit-comment-template }}")
-        COMMENT=$(printf '%s' "$COMMENT" | sed "s|{repository}|${{ inputs.repository }}|g")
-        COMMENT=$(printf '%s' "$COMMENT" | sed "s|{workflow}|${{ inputs.workflow }}|g")
-        COMMENT=$(printf '%s' "$COMMENT" | sed "s|{ref}|${{ inputs.ref }}|g")
+        # Create comment body with template substitution
+        # Use a heredoc to avoid issues with special characters and backticks
+        cat > /tmp/comment_template.txt << 'EOF'
+        ${{ inputs.commit-comment-template }}
+        EOF
+
+        # Replace template variables using sed
+        sed -i "s|{repository}|${{ inputs.repository }}|g" /tmp/comment_template.txt
+        sed -i "s|{workflow}|${{ inputs.workflow }}|g" /tmp/comment_template.txt
+        sed -i "s|{ref}|${{ inputs.ref }}|g" /tmp/comment_template.txt
+
+        # Read the processed comment
+        COMMENT=$(cat /tmp/comment_template.txt)
 
         # Create a comment on the commit
         gh api \
