@@ -1,0 +1,111 @@
+name: 'Analyze Commits for Version Bump'
+description: 'Analyzes commits to determine semantic version bump type based on conventional commits'
+
+inputs:
+  from-ref:
+    description: 'Starting reference (tag, SHA, or branch) to analyze from'
+    required: true
+  to-ref:
+    description: 'Ending reference (defaults to HEAD)'
+    required: false
+    default: 'HEAD'
+  max-commits:
+    description: 'Maximum commits to analyze if no from-ref found'
+    required: false
+    default: '10'
+  major-patterns:
+    description: 'Regex patterns for major version bumps (comma-separated)'
+    required: false
+    default: 'BREAKING CHANGE,BREAKING,breaking change,major'
+  minor-patterns:
+    description: 'Regex patterns for minor version bumps (comma-separated)'
+    required: false
+    default: 'feat,feature,minor,add'
+  
+outputs:
+  bump-type:
+    description: 'Determined bump type (major, minor, patch)'
+    value: ${{ steps.analyze.outputs.bump-type }}
+  commit-count:
+    description: 'Number of commits analyzed'
+    value: ${{ steps.analyze.outputs.commit-count }}
+  latest-sha:
+    description: 'Latest commit SHA in the range'
+    value: ${{ steps.analyze.outputs.latest-sha }}
+  has-commits:
+    description: 'Whether any commits were found'
+    value: ${{ steps.analyze.outputs.has-commits }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Analyze commits for bump type
+      id: analyze
+      shell: bash
+      run: |
+        FROM_REF="${{ inputs.from-ref }}"
+        TO_REF="${{ inputs.to-ref }}"
+        MAX_COMMITS="${{ inputs.max-commits }}"
+        MAJOR_PATTERNS="${{ inputs.major-patterns }}"
+        MINOR_PATTERNS="${{ inputs.minor-patterns }}"
+
+        echo "🔍 Analyzing commits from $FROM_REF to $TO_REF"
+
+        # Get commits in range
+        if git rev-parse "$FROM_REF" >/dev/null 2>&1; then
+          echo "📝 Analyzing commits from $FROM_REF to $TO_REF"
+          COMMITS=$(git log --oneline --format="%H %s" ${FROM_REF}..${TO_REF} 2>/dev/null || echo "")
+        else
+          echo "📝 Reference $FROM_REF not found, analyzing last $MAX_COMMITS commits"
+          COMMITS=$(git log --oneline --format="%H %s" --max-count=$MAX_COMMITS $TO_REF 2>/dev/null || echo "")
+        fi
+
+        if [[ -z "$COMMITS" ]]; then
+          echo "⚠️ No commits found to analyze"
+          echo "bump-type=patch" >> $GITHUB_OUTPUT
+          echo "commit-count=0" >> $GITHUB_OUTPUT
+          echo "latest-sha=" >> $GITHUB_OUTPUT
+          echo "has-commits=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Count commits
+        COMMIT_COUNT=$(echo "$COMMITS" | wc -l | tr -d ' ')
+        echo "📊 Found $COMMIT_COUNT commits to analyze"
+
+        # Get latest SHA
+        LATEST_SHA=$(echo "$COMMITS" | head -1 | awk '{print $1}')
+        
+        # Analyze commit messages for version bump indicators
+        BUMP_TYPE="patch"  # Default to patch
+
+        echo "🔍 Scanning commit messages..."
+
+        # Convert comma-separated patterns to regex
+        MAJOR_REGEX=$(echo "$MAJOR_PATTERNS" | sed 's/,/|/g')
+        MINOR_REGEX=$(echo "$MINOR_PATTERNS" | sed 's/,/|/g')
+
+        # Check for breaking changes (major)
+        if echo "$COMMITS" | grep -iE "($MAJOR_REGEX)" >/dev/null; then
+          BUMP_TYPE="major"
+          echo "🚨 Found breaking changes → major bump"
+        # Check for features (minor)  
+        elif echo "$COMMITS" | grep -iE "($MINOR_REGEX)" >/dev/null; then
+          BUMP_TYPE="minor"
+          echo "✨ Found new features → minor bump"
+        # Default to patch for fixes, chores, etc.
+        else
+          echo "🔧 Found fixes/improvements → patch bump"
+        fi
+
+        # Set outputs
+        echo "bump-type=$BUMP_TYPE" >> $GITHUB_OUTPUT
+        echo "commit-count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+        echo "latest-sha=$LATEST_SHA" >> $GITHUB_OUTPUT
+        echo "has-commits=true" >> $GITHUB_OUTPUT
+        
+        # Preview info
+        echo "📋 Summary:"
+        echo "  - Bump type: $BUMP_TYPE"
+        echo "  - Commit count: $COMMIT_COUNT"
+        echo "  - Latest SHA: ${LATEST_SHA:0:8}"

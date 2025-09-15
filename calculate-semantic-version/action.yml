@@ -1,0 +1,158 @@
+name: 'Calculate Semantic Version'
+description: 'Calculates new semantic version based on bump type or specific version'
+
+inputs:
+  current-version:
+    description: 'Current semantic version (with or without v prefix)'
+    required: true
+  bump-type:
+    description: 'Type of version bump (major, minor, patch)'
+    required: false
+  specific-version:
+    description: 'Specific version to set (overrides bump-type)'
+    required: false
+  prerelease:
+    description: 'Prerelease identifier (e.g., beta, rc)'
+    required: false
+  prerelease-number:
+    description: 'Prerelease number'
+    required: false
+
+outputs:
+  new-version:
+    description: 'Calculated new version (without v prefix)'
+    value: ${{ steps.calculate.outputs.new-version }}
+  new-version-with-v:
+    description: 'Calculated new version with v prefix'
+    value: ${{ steps.calculate.outputs.new-version-with-v }}
+  version-changed:
+    description: 'Whether version will change'
+    value: ${{ steps.calculate.outputs.version-changed }}
+  major:
+    description: 'Major version number'
+    value: ${{ steps.parse.outputs.major }}
+  minor:
+    description: 'Minor version number'
+    value: ${{ steps.parse.outputs.minor }}
+  patch:
+    description: 'Patch version number'
+    value: ${{ steps.parse.outputs.patch }}
+  previous-major:
+    description: 'Previous major version number'
+    value: ${{ steps.parse-current.outputs.major }}
+  previous-minor:
+    description: 'Previous minor version number'
+    value: ${{ steps.parse-current.outputs.minor }}
+  previous-patch:
+    description: 'Previous patch version number'
+    value: ${{ steps.parse-current.outputs.patch }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Parse current version
+      id: parse-current
+      shell: bash
+      run: |
+        VERSION="${{ inputs.current-version }}"
+        # Remove 'v' prefix if present
+        VERSION="${VERSION#v}"
+        
+        # Extract major, minor, patch
+        if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-.*)?$ ]]; then
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          PRERELEASE="${BASH_REMATCH[4]}"
+        else
+          echo "::error::Invalid semantic version format: $VERSION"
+          exit 1
+        fi
+        
+        echo "major=$MAJOR" >> $GITHUB_OUTPUT
+        echo "minor=$MINOR" >> $GITHUB_OUTPUT
+        echo "patch=$PATCH" >> $GITHUB_OUTPUT
+        echo "prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
+        echo "clean-version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Calculate new version
+      id: calculate
+      shell: bash
+      run: |
+        CURRENT="${{ steps.parse-current.outputs.clean-version }}"
+        MAJOR=${{ steps.parse-current.outputs.major }}
+        MINOR=${{ steps.parse-current.outputs.minor }}
+        PATCH=${{ steps.parse-current.outputs.patch }}
+        
+        # Check for specific version override
+        if [[ -n "${{ inputs.specific-version }}" ]]; then
+          NEW_VERSION="${{ inputs.specific-version }}"
+          # Remove 'v' prefix if present
+          NEW_VERSION="${NEW_VERSION#v}"
+          echo "📌 Using specific version: $NEW_VERSION"
+        elif [[ -n "${{ inputs.bump-type }}" ]]; then
+          BUMP_TYPE="${{ inputs.bump-type }}"
+          
+          case "$BUMP_TYPE" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              echo "🚀 Major version bump"
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              echo "✨ Minor version bump"
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              echo "🔧 Patch version bump"
+              ;;
+            *)
+              echo "⚠️ Unknown bump type: $BUMP_TYPE, defaulting to patch"
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+          
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          
+          # Add prerelease if specified
+          if [[ -n "${{ inputs.prerelease }}" ]]; then
+            PRERELEASE="${{ inputs.prerelease }}"
+            if [[ -n "${{ inputs.prerelease-number }}" ]]; then
+              PRERELEASE="${PRERELEASE}.${{ inputs.prerelease-number }}"
+            fi
+            NEW_VERSION="${NEW_VERSION}-${PRERELEASE}"
+          fi
+        else
+          echo "⚠️ No bump type or specific version provided, keeping current version"
+          NEW_VERSION="$CURRENT"
+        fi
+        
+        # Check if version changed
+        if [[ "$NEW_VERSION" == "$CURRENT" ]]; then
+          echo "ℹ️ Version unchanged: $CURRENT"
+          VERSION_CHANGED="false"
+        else
+          echo "✅ Version will change: $CURRENT → $NEW_VERSION"
+          VERSION_CHANGED="true"
+        fi
+        
+        echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "new-version-with-v=v$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "version-changed=$VERSION_CHANGED" >> $GITHUB_OUTPUT
+
+    - name: Parse new version components
+      id: parse
+      shell: bash
+      run: |
+        VERSION="${{ steps.calculate.outputs.new-version }}"
+        
+        # Extract major, minor, patch from new version
+        if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-.*)?$ ]]; then
+          echo "major=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+          echo "minor=${BASH_REMATCH[2]}" >> $GITHUB_OUTPUT
+          echo "patch=${BASH_REMATCH[3]}" >> $GITHUB_OUTPUT
+          echo "prerelease=${BASH_REMATCH[4]}" >> $GITHUB_OUTPUT
+        fi
