@@ -40,11 +40,15 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_TARGET_SHA: ${{ inputs.target-sha }}
+        INPUT_FILE_PATH: ${{ inputs.file-path }}
+        INPUT_ALLOW_ROLLBACK: ${{ inputs.allow-rollback }}
       run: |
-        REPOSITORY="${{ inputs.repository }}"
-        TARGET_SHA="${{ inputs.target-sha }}"
-        FILE_PATH="${{ inputs.file-path }}"
-        ALLOW_ROLLBACK="${{ inputs.allow-rollback }}"
+        REPOSITORY="$INPUT_REPOSITORY"
+        TARGET_SHA="$INPUT_TARGET_SHA"
+        FILE_PATH="$INPUT_FILE_PATH"
+        ALLOW_ROLLBACK="$INPUT_ALLOW_ROLLBACK"
         
         # Read last SHA from file
         LAST_SHA=""

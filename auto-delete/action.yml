@@ -58,9 +58,12 @@ runs:
     - name: Configure cleanup parameters
       id: config
       shell: bash
+      env:
+        INPUT_DAYS_OLD: ${{ inputs.days-old }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
       run: |
-        DAYS_OLD="${{ inputs.days-old }}"
-        DRY_RUN="${{ inputs.dry-run }}"
+        DAYS_OLD="$INPUT_DAYS_OLD"
+        DRY_RUN="$INPUT_DRY_RUN"
         STALE_DATE=$(date -d "${DAYS_OLD} days ago" +%Y-%m-%d)
         
         echo "days-old=$DAYS_OLD" >> $GITHUB_OUTPUT
@@ -77,13 +80,17 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
+        INPUT_LABELS_FILTER: ${{ inputs.labels-filter }}
+        INPUT_AUTHOR_FILTER: ${{ inputs.author-filter }}
+        INPUT_EXCLUDE_LABELS: ${{ inputs.exclude-labels }}
+        STALE_DATE: ${{ steps.config.outputs.stale-date }}
       run: |
         echo "Finding stale PRs..."
-        
+
         # Build label filters
         LABEL_FILTER=""
-        if [ -n "${{ inputs.labels-filter }}" ]; then
-          IFS=',' read -ra LABELS <<< "${{ inputs.labels-filter }}"
+        if [ -n "$INPUT_LABELS_FILTER" ]; then
+          IFS=',' read -ra LABELS <<< "$INPUT_LABELS_FILTER"
           for label in "${LABELS[@]}"; do
             LABEL_FILTER="$LABEL_FILTER --label \"$(echo $label | xargs)\""
           done
@@ -96,21 +103,21 @@ runs:
           --json number,createdAt,title,author,labels,headRefName,url)
         
         # Filter by date and other criteria
-        STALE_PRS=$(echo "$ALL_PRS" | jq --arg date "${{ steps.config.outputs.stale-date }}" \
+        STALE_PRS=$(echo "$ALL_PRS" | jq --arg date "$STALE_DATE" \
           '[.[] | select(.createdAt < $date + "T00:00:00Z")]')
         
         # Filter by author if specified
-        if [ "${{ inputs.author-filter }}" = "bot" ]; then
+        if [ "$INPUT_AUTHOR_FILTER" = "bot" ]; then
           STALE_PRS=$(echo "$STALE_PRS" | jq '[.[] | select(.author.login == "github-actions[bot]" or .author.login == "dependabot[bot]")]')
-        elif [ -n "${{ inputs.author-filter }}" ]; then
-          AUTHORS="${{ inputs.author-filter }}"
+        elif [ -n "$INPUT_AUTHOR_FILTER" ]; then
+          AUTHORS="$INPUT_AUTHOR_FILTER"
           STALE_PRS=$(echo "$STALE_PRS" | jq --arg authors "$AUTHORS" \
             '[.[] | select(.author.login | IN($authors | split(",") | map(ltrimstr(" ") | rtrimstr(" ")) | .[]))]')
         fi
-        
+
         # Exclude PRs with certain labels
-        if [ -n "${{ inputs.exclude-labels }}" ]; then
-          IFS=',' read -ra EXCLUDE_LABELS <<< "${{ inputs.exclude-labels }}"
+        if [ -n "$INPUT_EXCLUDE_LABELS" ]; then
+          IFS=',' read -ra EXCLUDE_LABELS <<< "$INPUT_EXCLUDE_LABELS"
           for label in "${EXCLUDE_LABELS[@]}"; do
             LABEL_TRIMMED=$(echo $label | xargs)
             STALE_PRS=$(echo "$STALE_PRS" | jq --arg label "$LABEL_TRIMMED" \
@@ -139,13 +146,17 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        INPUT_DAYS_OLD: ${{ inputs.days-old }}
+        INPUT_CLOSE_COMMENT: ${{ inputs.close-comment }}
+        STALE_PRS: ${{ steps.find-stale.outputs.stale-prs }}
       run: |
-        DRY_RUN="${{ inputs.dry-run }}"
+        DRY_RUN="$INPUT_DRY_RUN"
         CLOSED_COUNT=0
         CLOSED_PRS="[]"
         
         # Process each PR
-        echo "${{ steps.find-stale.outputs.stale-prs }}" | jq -c '.[]' | while IFS= read -r pr; do
+        echo "$STALE_PRS" | jq -c '.[]' | while IFS= read -r pr; do
           PR_NUM=$(echo "$pr" | jq -r .number)
           PR_TITLE=$(echo "$pr" | jq -r .title)
           PR_BRANCH=$(echo "$pr" | jq -r .headRefName)
@@ -158,8 +169,8 @@ runs:
             CLOSED_PRS=$(echo "$CLOSED_PRS" | jq ". + [$PR_NUM]")
           else
             # Post comment with placeholders replaced
-            COMMENT="${{ inputs.close-comment }}"
-            COMMENT="${COMMENT//\{days\}/${{ inputs.days-old }}}"
+            COMMENT="$INPUT_CLOSE_COMMENT"
+            COMMENT="${COMMENT//\{days\}/$INPUT_DAYS_OLD}"
             COMMENT="${COMMENT//\{branch\}/$PR_BRANCH}"
             
             gh pr comment $PR_NUM -R ${{ github.repository }} --body "$COMMENT"

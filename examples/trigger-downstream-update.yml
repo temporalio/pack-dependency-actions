@@ -26,11 +26,14 @@ jobs:
 
       - name: Get commit SHA
         id: sha
+        env:
+          INPUT_TARGET_SHA: ${{ github.event.inputs.target-sha }}
+          GITHUB_SHA: ${{ github.sha }}
         run: |
-          if [ -n "${{ github.event.inputs.target-sha }}" ]; then
-            echo "sha=${{ github.event.inputs.target-sha }}" >> $GITHUB_OUTPUT
+          if [ -n "$INPUT_TARGET_SHA" ]; then
+            echo "sha=$INPUT_TARGET_SHA" >> $GITHUB_OUTPUT
           else
-            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "sha=$GITHUB_SHA" >> $GITHUB_OUTPUT
           fi
 
       - name: Generate token for cross-repo access

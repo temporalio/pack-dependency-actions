@@ -29,15 +29,19 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.token || github.token }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_SHA: ${{ inputs.sha }}
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_TOKEN: ${{ inputs.token }}
       run: |
-        REPOSITORY="${{ inputs.repository }}"
-        SHA="${{ inputs.sha }}"
-        PATH_PREFIX="${{ inputs.path }}"
+        REPOSITORY="$INPUT_REPOSITORY"
+        SHA="$INPUT_SHA"
+        PATH_PREFIX="$INPUT_PATH"
 
         echo "Downloading $REPOSITORY@$SHA..."
 
         # Use API with token if provided, otherwise use public download
-        if [ -n "${{ inputs.token }}" ]; then
+        if [ -n "$INPUT_TOKEN" ]; then
           echo "Using authenticated download..."
           curl -L \
             -H "Authorization: Bearer $GITHUB_TOKEN" \

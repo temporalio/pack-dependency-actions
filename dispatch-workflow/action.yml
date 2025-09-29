@@ -48,8 +48,14 @@ runs:
     - name: Dispatch workflow
       id: dispatch
       shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        WORKFLOW_NAME: ${{ inputs.workflow }}
+        REPOSITORY: ${{ inputs.repository }}
+        REF: ${{ inputs.ref }}
+        INPUTS_JSON: ${{ inputs.inputs }}
       run: |
-        echo "Dispatching workflow '${{ inputs.workflow }}' in ${{ inputs.repository }}..."
+        echo "Dispatching workflow '$WORKFLOW_NAME' in $REPOSITORY..."
 
         # Use GitHub API directly for workflow dispatch
         # Note: --input expects the raw JSON to be passed, not -f which treats it as a string
@@ -57,8 +63,8 @@ runs:
           --method POST \
           -H "Accept: application/vnd.github+json" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
-          /repos/${{ inputs.repository }}/actions/workflows/${{ inputs.workflow }}/dispatches \
-          --input - <<< '{"ref": "${{ inputs.ref }}", "inputs": ${{ inputs.inputs }}}' 2>&1) || dispatch_failed=true
+          /repos/$REPOSITORY/actions/workflows/$WORKFLOW_NAME/dispatches \
+          --input - <<< "{\"ref\": \"$REF\", \"inputs\": $INPUTS_JSON}" 2>&1) || dispatch_failed=true
 
         # Check if dispatch was successful (API returns 204 No Content on success)
         if [ -z "$response" ] || [[ "$response" == "" ]]; then
@@ -77,27 +83,32 @@ runs:
             echo "dispatched=true" >> $GITHUB_OUTPUT
           fi
         fi
-      env:
-        GH_TOKEN: ${{ inputs.token }}
 
     - name: Log workflow dispatch
       if: inputs.log-output == 'true' && always()
       shell: bash
+      env:
+        LOG_TITLE: ${{ inputs.log-title }}
+        DISPATCHED: ${{ steps.dispatch.outputs.dispatched }}
+        REPOSITORY: ${{ inputs.repository }}
+        WORKFLOW_NAME: ${{ inputs.workflow }}
+        REF: ${{ inputs.ref }}
+        INPUTS_JSON: ${{ inputs.inputs }}
       run: |
-        echo "## ${{ inputs.log-title }}"
+        echo "## $LOG_TITLE"
         echo ""
-        if [ "${{ steps.dispatch.outputs.dispatched }}" == "true" ]; then
+        if [ "$DISPATCHED" == "true" ]; then
           echo "✅ Successfully dispatched workflow"
-          echo "- **Repository:** ${{ inputs.repository }}"
-          echo "- **Workflow:** ${{ inputs.workflow }}"
-          echo "- **Reference:** ${{ inputs.ref }}"
-          if [ '${{ inputs.inputs }}' != '{}' ] && [ -n '${{ inputs.inputs }}' ]; then
-            echo "- **Inputs:** \`${{ inputs.inputs }}\`"
+          echo "- **Repository:** $REPOSITORY"
+          echo "- **Workflow:** $WORKFLOW_NAME"
+          echo "- **Reference:** $REF"
+          if [ "$INPUTS_JSON" != '{}' ] && [ -n "$INPUTS_JSON" ]; then
+            echo "- **Inputs:** \`$INPUTS_JSON\`"
           fi
         else
           echo "❌ Failed to dispatch workflow"
-          echo "- **Repository:** ${{ inputs.repository }}"
-          echo "- **Workflow:** ${{ inputs.workflow }}"
+          echo "- **Repository:** $REPOSITORY"
+          echo "- **Workflow:** $WORKFLOW_NAME"
         fi
 
     - name: Add comment to commit
@@ -105,17 +116,19 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
+        REPOSITORY: ${{ inputs.repository }}
+        WORKFLOW_NAME: ${{ inputs.workflow }}
+        REF: ${{ inputs.ref }}
+        COMMENT_TEMPLATE: ${{ inputs.commit-comment-template }}
       run: |
         # Create comment body with template substitution
         # Use a heredoc to avoid issues with special characters and backticks
-        cat > /tmp/comment_template.txt << 'EOF'
-        ${{ inputs.commit-comment-template }}
-        EOF
+        echo "$COMMENT_TEMPLATE" > /tmp/comment_template.txt
 
         # Replace template variables using sed
-        sed -i "s|{repository}|${{ inputs.repository }}|g" /tmp/comment_template.txt
-        sed -i "s|{workflow}|${{ inputs.workflow }}|g" /tmp/comment_template.txt
-        sed -i "s|{ref}|${{ inputs.ref }}|g" /tmp/comment_template.txt
+        sed -i "s|{repository}|$REPOSITORY|g" /tmp/comment_template.txt
+        sed -i "s|{workflow}|$WORKFLOW_NAME|g" /tmp/comment_template.txt
+        sed -i "s|{ref}|$REF|g" /tmp/comment_template.txt
 
         # Read the processed comment
         COMMENT=$(cat /tmp/comment_template.txt)
