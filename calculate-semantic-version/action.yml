@@ -83,6 +83,8 @@ runs:
       env:
         INPUT_SPECIFIC_VERSION: ${{ inputs.specific-version }}
         INPUT_BUMP_TYPE: ${{ inputs.bump-type }}
+        INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        INPUT_PRERELEASE_NUMBER: ${{ inputs.prerelease-number }}
         CURRENT_CLEAN: ${{ steps.parse-current.outputs.clean-version }}
         CURRENT_MAJOR: ${{ steps.parse-current.outputs.major }}
         CURRENT_MINOR: ${{ steps.parse-current.outputs.minor }}
@@ -127,10 +129,10 @@ runs:
           NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
           
           # Add prerelease if specified
-          if [[ -n "${{ inputs.prerelease }}" ]]; then
-            PRERELEASE="${{ inputs.prerelease }}"
-            if [[ -n "${{ inputs.prerelease-number }}" ]]; then
-              PRERELEASE="${PRERELEASE}.${{ inputs.prerelease-number }}"
+          if [[ -n "$INPUT_PRERELEASE" ]]; then
+            PRERELEASE="$INPUT_PRERELEASE"
+            if [[ -n "$INPUT_PRERELEASE_NUMBER" ]]; then
+              PRERELEASE="${PRERELEASE}.${INPUT_PRERELEASE_NUMBER}"
             fi
             NEW_VERSION="${NEW_VERSION}-${PRERELEASE}"
           fi
