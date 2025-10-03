@@ -42,12 +42,18 @@ runs:
     - name: Analyze commits for bump type
       id: analyze
       shell: bash
+      env:
+        INPUT_FROM_REF: ${{ inputs.from-ref }}
+        INPUT_TO_REF: ${{ inputs.to-ref }}
+        INPUT_MAX_COMMITS: ${{ inputs.max-commits }}
+        INPUT_MAJOR_PATTERNS: ${{ inputs.major-patterns }}
+        INPUT_MINOR_PATTERNS: ${{ inputs.minor-patterns }}
       run: |
-        FROM_REF="${{ inputs.from-ref }}"
-        TO_REF="${{ inputs.to-ref }}"
-        MAX_COMMITS="${{ inputs.max-commits }}"
-        MAJOR_PATTERNS="${{ inputs.major-patterns }}"
-        MINOR_PATTERNS="${{ inputs.minor-patterns }}"
+        FROM_REF="$INPUT_FROM_REF"
+        TO_REF="$INPUT_TO_REF"
+        MAX_COMMITS="$INPUT_MAX_COMMITS"
+        MAJOR_PATTERNS="$INPUT_MAJOR_PATTERNS"
+        MINOR_PATTERNS="$INPUT_MINOR_PATTERNS"
 
         echo "🔍 Analyzing commits from $FROM_REF to $TO_REF"
 

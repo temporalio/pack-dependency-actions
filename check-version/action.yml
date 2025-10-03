@@ -74,8 +74,10 @@ runs:
     - name: Get main branch version
       id: get-main-version
       shell: bash
+      env:
+        INPUT_FILE_PATH: ${{ inputs.file-path }}
       run: |
-        FILE_PATH="${{ inputs.file-path }}"
+        FILE_PATH="$INPUT_FILE_PATH"
         MAIN_VERSION=""
 
         if git show origin/main:"${FILE_PATH}" > /dev/null 2>&1; then
@@ -90,8 +92,10 @@ runs:
     - name: Get PR version
       id: get-pr-version
       shell: bash
+      env:
+        INPUT_FILE_PATH: ${{ inputs.file-path }}
       run: |
-        FILE_PATH="${{ inputs.file-path }}"
+        FILE_PATH="$INPUT_FILE_PATH"
         PR_VERSION=""
 
         if [ -f "${FILE_PATH}" ]; then
@@ -106,8 +110,10 @@ runs:
     - name: Get base version
       id: get-base-version
       shell: bash
+      env:
+        INPUT_FILE_PATH: ${{ inputs.file-path }}
       run: |
-        FILE_PATH="${{ inputs.file-path }}"
+        FILE_PATH="$INPUT_FILE_PATH"
         MERGE_BASE=$(git merge-base HEAD origin/main || echo "")
         BASE_VERSION=""
 

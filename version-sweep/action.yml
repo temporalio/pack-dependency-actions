@@ -40,13 +40,15 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
+        INPUT_BASE_BRANCH: ${{ inputs.base-branch }}
+        INPUT_LABELS_FILTER: ${{ inputs.labels-filter }}
       run: |
-        echo "Fetching open PRs targeting ${{ inputs.base-branch }}..."
-        
+        echo "Fetching open PRs targeting $INPUT_BASE_BRANCH..."
+
         # Build label filter if provided
         LABEL_FILTER=""
-        if [ -n "${{ inputs.labels-filter }}" ]; then
-          IFS=',' read -ra LABELS <<< "${{ inputs.labels-filter }}"
+        if [ -n "$INPUT_LABELS_FILTER" ]; then
+          IFS=',' read -ra LABELS <<< "$INPUT_LABELS_FILTER"
           for label in "${LABELS[@]}"; do
             LABEL_FILTER="$LABEL_FILTER --label \"$label\""
           done
@@ -55,7 +57,7 @@ runs:
         # Get PR list
         PRS=$(gh pr list -R ${{ github.repository }} \
           --state open \
-          --base ${{ inputs.base-branch }} \
+          --base $INPUT_BASE_BRANCH \
           $LABEL_FILTER \
           --json number \
           --jq '[.[].number]')

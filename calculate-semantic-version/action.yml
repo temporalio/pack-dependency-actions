@@ -53,8 +53,10 @@ runs:
     - name: Parse current version
       id: parse-current
       shell: bash
+      env:
+        INPUT_CURRENT_VERSION: ${{ inputs.current-version }}
       run: |
-        VERSION="${{ inputs.current-version }}"
+        VERSION="$INPUT_CURRENT_VERSION"
         # Remove 'v' prefix if present
         VERSION="${VERSION#v}"
         
@@ -78,20 +80,29 @@ runs:
     - name: Calculate new version
       id: calculate
       shell: bash
+      env:
+        INPUT_SPECIFIC_VERSION: ${{ inputs.specific-version }}
+        INPUT_BUMP_TYPE: ${{ inputs.bump-type }}
+        INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        INPUT_PRERELEASE_NUMBER: ${{ inputs.prerelease-number }}
+        CURRENT_CLEAN: ${{ steps.parse-current.outputs.clean-version }}
+        CURRENT_MAJOR: ${{ steps.parse-current.outputs.major }}
+        CURRENT_MINOR: ${{ steps.parse-current.outputs.minor }}
+        CURRENT_PATCH: ${{ steps.parse-current.outputs.patch }}
       run: |
-        CURRENT="${{ steps.parse-current.outputs.clean-version }}"
-        MAJOR=${{ steps.parse-current.outputs.major }}
-        MINOR=${{ steps.parse-current.outputs.minor }}
-        PATCH=${{ steps.parse-current.outputs.patch }}
-        
+        CURRENT="$CURRENT_CLEAN"
+        MAJOR=$CURRENT_MAJOR
+        MINOR=$CURRENT_MINOR
+        PATCH=$CURRENT_PATCH
+
         # Check for specific version override
-        if [[ -n "${{ inputs.specific-version }}" ]]; then
-          NEW_VERSION="${{ inputs.specific-version }}"
+        if [[ -n "$INPUT_SPECIFIC_VERSION" ]]; then
+          NEW_VERSION="$INPUT_SPECIFIC_VERSION"
           # Remove 'v' prefix if present
           NEW_VERSION="${NEW_VERSION#v}"
           echo "📌 Using specific version: $NEW_VERSION"
-        elif [[ -n "${{ inputs.bump-type }}" ]]; then
-          BUMP_TYPE="${{ inputs.bump-type }}"
+        elif [[ -n "$INPUT_BUMP_TYPE" ]]; then
+          BUMP_TYPE="$INPUT_BUMP_TYPE"
           
           case "$BUMP_TYPE" in
             major)
@@ -118,10 +129,10 @@ runs:
           NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
           
           # Add prerelease if specified
-          if [[ -n "${{ inputs.prerelease }}" ]]; then
-            PRERELEASE="${{ inputs.prerelease }}"
-            if [[ -n "${{ inputs.prerelease-number }}" ]]; then
-              PRERELEASE="${PRERELEASE}.${{ inputs.prerelease-number }}"
+          if [[ -n "$INPUT_PRERELEASE" ]]; then
+            PRERELEASE="$INPUT_PRERELEASE"
+            if [[ -n "$INPUT_PRERELEASE_NUMBER" ]]; then
+              PRERELEASE="${PRERELEASE}.${INPUT_PRERELEASE_NUMBER}"
             fi
             NEW_VERSION="${NEW_VERSION}-${PRERELEASE}"
           fi
@@ -146,8 +157,10 @@ runs:
     - name: Parse new version components
       id: parse
       shell: bash
+      env:
+        CALCULATED_VERSION: ${{ steps.calculate.outputs.new-version }}
       run: |
-        VERSION="${{ steps.calculate.outputs.new-version }}"
+        VERSION="$CALCULATED_VERSION"
         
         # Extract major, minor, patch from new version
         if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-.*)?$ ]]; then

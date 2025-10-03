@@ -18,10 +18,14 @@ runs:
   steps:
     - name: Update dependencies
       shell: bash
+      env:
+        INPUT_PACKAGE_NAMES: ${{ inputs.package-names }}
+        INPUT_PACK_FILES: ${{ inputs.pack-files }}
+        INPUT_PKG_MANAGER: ${{ inputs.package-manager }}
       run: |
-        PACKAGE_NAMES="${{ inputs.package-names }}"
-        PACK_FILES="${{ inputs.pack-files }}"
-        PKG_MANAGER="${{ inputs.package-manager }}"
+        PACKAGE_NAMES="$INPUT_PACKAGE_NAMES"
+        PACK_FILES="$INPUT_PACK_FILES"
+        PKG_MANAGER="$INPUT_PKG_MANAGER"
 
         # Convert comma-separated strings to arrays
         IFS=',' read -ra PACKAGES <<< "$PACKAGE_NAMES"

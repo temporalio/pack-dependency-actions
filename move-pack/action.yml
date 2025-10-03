@@ -32,12 +32,18 @@ runs:
     - name: Move packed files
       id: move
       shell: bash
+      env:
+        INPUT_SOURCE_PATH: ${{ inputs.source-path }}
+        INPUT_PACK_DEST: ${{ inputs.pack-destination }}
+        INPUT_PACKAGE_NAME: ${{ inputs.package-name }}
+        INPUT_SHA: ${{ inputs.sha }}
+        INPUT_SOURCE_PATTERN: ${{ inputs.source-pattern }}
       run: |
-        SOURCE_PATH="${{ inputs.source-path }}"
-        ROOT_PACK_DEST="${{ inputs.pack-destination }}"
-        PACKAGE_NAME="${{ inputs.package-name }}"
-        SHA="${{ inputs.sha }}"
-        PATTERN="${{ inputs.source-pattern }}"
+        SOURCE_PATH="$INPUT_SOURCE_PATH"
+        ROOT_PACK_DEST="$INPUT_PACK_DEST"
+        PACKAGE_NAME="$INPUT_PACKAGE_NAME"
+        SHA="$INPUT_SHA"
+        PATTERN="$INPUT_SOURCE_PATTERN"
 
         # Store current directory
         ROOT_DIR=$(pwd)

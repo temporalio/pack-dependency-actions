@@ -36,11 +36,15 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_FROM_SHA: ${{ inputs.from-sha }}
+        INPUT_TO_SHA: ${{ inputs.to-sha }}
+        INPUT_FORMAT: ${{ inputs.format }}
       run: |
-        REPOSITORY="${{ inputs.repository }}"
-        FROM_SHA="${{ inputs.from-sha }}"
-        TO_SHA="${{ inputs.to-sha }}"
-        FORMAT="${{ inputs.format }}"
+        REPOSITORY="$INPUT_REPOSITORY"
+        FROM_SHA="$INPUT_FROM_SHA"
+        TO_SHA="$INPUT_TO_SHA"
+        FORMAT="$INPUT_FORMAT"
 
         if [ -z "$FROM_SHA" ]; then
           echo "No previous SHA, showing latest commit only"
