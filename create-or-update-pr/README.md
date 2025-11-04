@@ -120,6 +120,31 @@ Our action instead:
 - ✅ Uses regular `git push` without force flags
 - ✅ Works well with collaborative PR workflows
 
+## Security
+
+This action implements several security best practices:
+
+### Input Validation
+- Validates `files-to-add` input to prevent command injection
+- Rejects inputs containing dangerous shell metacharacters: `; & | ` $ ( )`
+- Uses `git add --` to ensure arguments are treated as paths, not options
+
+### Script Injection Prevention
+- All inputs are passed to `actions/github-script` via environment variables
+- Prevents JavaScript injection through direct string interpolation
+- No user input is directly interpolated into shell commands
+
+### Secure Defaults
+- Actions are pinned to specific commit SHAs, not mutable version tags
+- Currently uses `actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea` (v7.0.1)
+- All shell variables are properly quoted to prevent word splitting
+- Git credentials passed via environment variables, not command arguments
+
+### Token Handling
+- GitHub token is only used for API calls and git operations
+- Token is never logged or exposed in output
+- Passed securely via `github-token` input to github-script
+
 ## Maintenance
 
 This action uses `actions/github-script@v7` internally. If GitHub's API changes or new features are needed, update the script in `action.yml`.
