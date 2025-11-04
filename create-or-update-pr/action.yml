@@ -81,6 +81,15 @@ runs:
         # Fetch all branches
         git fetch origin
 
+        # Check if there are uncommitted changes (tracked or untracked)
+        if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+          echo "Stashing uncommitted changes"
+          git stash push --include-untracked -m "Temporary stash for branch checkout"
+          STASHED=true
+        else
+          STASHED=false
+        fi
+
         # Check if branch exists on remote
         if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
           echo "Branch exists, checking out and pulling latest"
@@ -90,6 +99,12 @@ runs:
           echo "Branch does not exist, creating new branch"
           git checkout -b "$BRANCH"
           echo "branch_exists=false" >> $GITHUB_OUTPUT
+        fi
+
+        # Restore stashed changes if we stashed them
+        if [ "$STASHED" = "true" ]; then
+          echo "Restoring stashed changes"
+          git stash pop
         fi
 
     - name: Commit changes
