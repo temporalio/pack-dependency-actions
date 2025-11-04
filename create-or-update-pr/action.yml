@@ -1,0 +1,243 @@
+name: 'Create or Update Pull Request'
+description: 'Safely updates a PR branch by committing on top of existing commits, then creates or updates the PR'
+inputs:
+  token:
+    description: 'GitHub token for API access'
+    required: true
+  branch:
+    description: 'The branch name for the PR'
+    required: true
+  commit-message:
+    description: 'The commit message for changes'
+    required: true
+  files-to-add:
+    description: 'Space-separated list of files/paths to add to the commit'
+    required: true
+  committer-name:
+    description: 'The name to use for the git commit'
+    required: true
+  committer-email:
+    description: 'The email to use for the git commit'
+    required: true
+  title:
+    description: 'The PR title'
+    required: true
+  body:
+    description: 'The PR body/description'
+    required: true
+  labels:
+    description: 'Comma-separated list of labels to add'
+    required: false
+    default: ''
+  reviewers:
+    description: 'Comma-separated list of reviewers to request'
+    required: false
+    default: ''
+  base:
+    description: 'The base branch for the PR'
+    required: false
+    default: 'main'
+  draft:
+    description: 'Whether to create the PR as a draft'
+    required: false
+    default: 'true'
+
+outputs:
+  pr-number:
+    description: 'The PR number'
+    value: ${{ steps.create-pr.outputs.pr-number }}
+  pr-url:
+    description: 'The PR URL'
+    value: ${{ steps.create-pr.outputs.pr-url }}
+  pr-created:
+    description: 'Whether a new PR was created (true/false)'
+    value: ${{ steps.create-pr.outputs.pr-created }}
+  branch-exists:
+    description: 'Whether the branch existed before this action ran'
+    value: ${{ steps.checkout-branch.outputs.branch_exists }}
+  has-changes:
+    description: 'Whether there were changes to commit'
+    value: ${{ steps.commit-changes.outputs.has_changes }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure git
+      shell: bash
+      env:
+        COMMITTER_NAME: ${{ inputs.committer-name }}
+        COMMITTER_EMAIL: ${{ inputs.committer-email }}
+      run: |
+        git config user.name "$COMMITTER_NAME"
+        git config user.email "$COMMITTER_EMAIL"
+
+    - name: Checkout or create branch
+      id: checkout-branch
+      shell: bash
+      env:
+        BRANCH: ${{ inputs.branch }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        # Fetch all branches
+        git fetch origin
+
+        # Check if there are uncommitted changes that need to be preserved
+        if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+          echo "Stashing uncommitted changes"
+          git stash push --include-untracked -m "Temporary stash for branch checkout"
+          STASHED=true
+        else
+          STASHED=false
+        fi
+
+        # Check if branch exists on remote
+        if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+          echo "Branch exists, checking out and pulling latest"
+          git checkout -b "$BRANCH" "origin/$BRANCH"
+          echo "branch_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "Branch does not exist, creating new branch"
+          git checkout -b "$BRANCH"
+          echo "branch_exists=false" >> $GITHUB_OUTPUT
+        fi
+
+        # Restore stashed changes if we stashed them
+        if [ "$STASHED" = "true" ]; then
+          echo "Restoring stashed changes"
+          if ! git stash pop; then
+            echo "Conflicts detected during stash pop, resolving by accepting stashed changes"
+            # Accept all incoming changes from the stash (the new files we want)
+            git checkout --theirs -- .
+            git add .
+            git stash drop
+          fi
+        fi
+
+    - name: Commit changes
+      id: commit-changes
+      shell: bash
+      env:
+        COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        FILES_TO_ADD: ${{ inputs.files-to-add }}
+      run: |
+        # Validate files-to-add doesn't contain dangerous characters
+        if echo "$FILES_TO_ADD" | grep -qE '[;&|`$()]'; then
+          echo "Error: files-to-add contains potentially dangerous characters"
+          exit 1
+        fi
+
+        # Stage the changes
+        # Use -- to ensure everything after is treated as paths, not options
+        # shellcheck disable=SC2086
+        git add -- $FILES_TO_ADD
+
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Commit the changes
+        git commit -m "$COMMIT_MESSAGE"
+        echo "has_changes=true" >> $GITHUB_OUTPUT
+
+    - name: Push changes
+      if: steps.commit-changes.outputs.has_changes == 'true'
+      shell: bash
+      env:
+        BRANCH: ${{ inputs.branch }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        # Push the branch (not force push)
+        git push origin "$BRANCH"
+    - name: Create or update pull request
+      id: create-pr
+      if: steps.commit-changes.outputs.has_changes == 'true'
+      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+      env:
+        INPUT_BRANCH: ${{ inputs.branch }}
+        INPUT_TITLE: ${{ inputs.title }}
+        INPUT_BODY: ${{ inputs.body }}
+        INPUT_LABELS: ${{ inputs.labels }}
+        INPUT_REVIEWERS: ${{ inputs.reviewers }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_DRAFT: ${{ inputs.draft }}
+        BRANCH_EXISTS: ${{ steps.checkout-branch.outputs.branch_exists }}
+      with:
+        github-token: ${{ inputs.token }}
+        script: |
+          const branch = process.env.INPUT_BRANCH;
+          const prTitle = process.env.INPUT_TITLE;
+          const prBody = process.env.INPUT_BODY;
+          const labels = process.env.INPUT_LABELS.split(',').filter(Boolean);
+          const reviewers = process.env.INPUT_REVIEWERS.split(',').filter(Boolean);
+          const base = process.env.INPUT_BASE;
+          const draft = process.env.INPUT_DRAFT === 'true';
+          const branchExists = process.env.BRANCH_EXISTS === 'true';
+
+          // Find existing PR
+          const { data: prs } = await github.rest.pulls.list({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            head: `${context.repo.owner}:${branch}`,
+            state: 'open'
+          });
+
+          if (prs.length > 0) {
+            // Update existing PR
+            const pr = prs[0];
+            console.log(`Updating existing PR #${pr.number}`);
+
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              title: prTitle,
+              body: prBody
+            });
+
+            core.setOutput('pr-number', pr.number);
+            core.setOutput('pr-url', pr.html_url);
+            core.setOutput('pr-created', 'false');
+          } else if (!branchExists) {
+            // Create new PR only if branch didn't exist before
+            console.log('Creating new PR');
+
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: prTitle,
+              body: prBody,
+              head: branch,
+              base: base,
+              draft: draft
+            });
+
+            // Add labels if provided
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: labels
+              });
+            }
+
+            // Request reviewers if provided
+            if (reviewers.length > 0) {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                reviewers: reviewers
+              });
+            }
+
+            core.setOutput('pr-number', pr.number);
+            core.setOutput('pr-url', pr.html_url);
+            core.setOutput('pr-created', 'true');
+          } else {
+            console.log('Branch exists but no open PR found - skipping PR creation');
+            core.setOutput('pr-created', 'false');
+          }

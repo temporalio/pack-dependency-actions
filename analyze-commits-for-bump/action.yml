@@ -20,7 +20,7 @@ inputs:
   minor-patterns:
     description: 'Regex patterns for minor version bumps (comma-separated)'
     required: false
-    default: 'feat,feature,minor,add'
+    default: 'feat,feature,minor'
   
 outputs:
   bump-type:
