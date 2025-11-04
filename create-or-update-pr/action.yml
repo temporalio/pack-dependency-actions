@@ -81,7 +81,7 @@ runs:
         # Fetch all branches
         git fetch origin
 
-        # Check if there are uncommitted changes (tracked or untracked)
+        # Check if there are uncommitted changes that need to be preserved
         if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
           echo "Stashing uncommitted changes"
           git stash push --include-untracked -m "Temporary stash for branch checkout"
@@ -104,7 +104,13 @@ runs:
         # Restore stashed changes if we stashed them
         if [ "$STASHED" = "true" ]; then
           echo "Restoring stashed changes"
-          git stash pop
+          if ! git stash pop; then
+            echo "Conflicts detected during stash pop, resolving by accepting stashed changes"
+            # Accept all incoming changes from the stash (the new files we want)
+            git checkout --theirs -- .
+            git add .
+            git stash drop
+          fi
         fi
 
     - name: Commit changes
