@@ -50,9 +50,15 @@ runs:
 
           echo "  Updating: $package -> file:$pack_file"
 
-          # Update both dependencies and devDependencies
+          # Update dependencies
           cat package.json | jq ".dependencies[\"$package\"] = \"file:$pack_file\"" > package.json.tmp
           mv package.json.tmp package.json
+
+          # Add to pnpm overrides to ensure transitive dependencies also use local files
+          if [ "$PKG_MANAGER" = "pnpm" ]; then
+            cat package.json | jq ".pnpm.overrides[\"$package\"] = \"file:$pack_file\"" > package.json.tmp
+            mv package.json.tmp package.json
+          fi
         done
 
         # Run install to resolve all interdependencies
