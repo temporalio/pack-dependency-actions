@@ -33,11 +33,14 @@ runs:
   steps:
     - name: Prepare source
       shell: bash
+      env:
+        SOURCE_PATH: ${{ inputs.source-path }}
+        REMOVE_PREPARE: ${{ inputs.remove-prepare }}
       run: |
-        cd "${{ inputs.source-path }}"
+        cd "$SOURCE_PATH"
 
         # Remove prepare script if requested
-        if [ "${{ inputs.remove-prepare }}" = "true" ] && [ -f "package.json" ]; then
+        if [ "$REMOVE_PREPARE" = "true" ] && [ -f "package.json" ]; then
           echo "Removing prepare script..."
           cat package.json | jq 'del(.scripts.prepare)' > package.json.tmp
           mv package.json.tmp package.json
@@ -45,17 +48,20 @@ runs:
 
     - name: Install dependencies
       shell: bash
+      env:
+        SOURCE_PATH: ${{ inputs.source-path }}
       run: |
-        cd "${{ inputs.source-path }}"
+        cd "$SOURCE_PATH"
         pnpm install --frozen-lockfile --ignore-scripts
 
     - name: Build package
       shell: bash
       env:
+        SOURCE_PATH: ${{ inputs.source-path }}
         BUILD_COMMAND: ${{ inputs.build-command }}
         BUILD_COMMANDS: ${{ inputs.build-commands }}
       run: |
-        cd "${{ inputs.source-path }}"
+        cd "$SOURCE_PATH"
 
         # Check if batch mode (build-commands provided)
         if [ -n "$BUILD_COMMANDS" ]; then
@@ -78,10 +84,10 @@ runs:
       id: pack
       shell: bash
       env:
+        SOURCE_PATH: ${{ inputs.source-path }}
         PACK_COMMAND: ${{ inputs.pack-command }}
         PACK_COMMANDS: ${{ inputs.pack-commands }}
       run: |
-        SOURCE_PATH="${{ inputs.source-path }}"
         cd "$SOURCE_PATH"
 
         PACKAGE_FILES=()
