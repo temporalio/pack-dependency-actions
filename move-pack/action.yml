@@ -60,7 +60,7 @@ runs:
           if [ -n "$PACKAGE_NAME" ]; then
             CLEAN_NAME="${PACKAGE_NAME//[@\/]/-}"
             CLEAN_NAME="${CLEAN_NAME#-}"
-            echo "Cleaning up old versions of $CLEAN_NAME..."
+            echo "Cleaning up old versions of $CLEAN_NAME..." >&2
             rm -f "$ROOT_PACK_DEST/$CLEAN_NAME"-*.tgz 2>/dev/null || true
           fi
 
@@ -70,11 +70,11 @@ runs:
           PACKED_FILE=$(find . -name "$PATTERN" -type f | head -1)
 
           if [ -z "$PACKED_FILE" ]; then
-            echo "Error: No packed file found matching pattern: $PATTERN"
+            echo "Error: No packed file found matching pattern: $PATTERN" >&2
             return 1
           fi
 
-          echo "Found packed file: $PACKED_FILE"
+          echo "Found packed file: $PACKED_FILE" >&2
 
           # Get the base filename
           PACKED_FILENAME=$(basename "$PACKED_FILE")
@@ -99,7 +99,7 @@ runs:
           FINAL_PATH="$ROOT_DIR/$ROOT_PACK_DEST/$NEW_NAME"
           mv "$PACKED_FILE" "$FINAL_PATH"
 
-          echo "Moved to: $FINAL_PATH"
+          echo "Moved to: $FINAL_PATH" >&2
 
           # Return to root directory
           cd "$ROOT_DIR"
@@ -109,7 +109,7 @@ runs:
 
         # Check if batch mode (packages input provided)
         if [ -n "$INPUT_PACKAGES" ]; then
-          echo "Running in batch mode..."
+          echo "Running in batch mode..." >&2
           PACKAGE_FILES=()
 
           # Process each package line
@@ -122,11 +122,11 @@ runs:
               PKG_NAME="${BASH_REMATCH[1]}"
               PKG_PATTERN="${BASH_REMATCH[2]}"
 
-              echo "Processing package: $PKG_NAME with pattern: $PKG_PATTERN"
+              echo "Processing package: $PKG_NAME with pattern: $PKG_PATTERN" >&2
               MOVED_FILE=$(move_package "$PKG_NAME" "$PKG_PATTERN")
               PACKAGE_FILES+=("$MOVED_FILE")
             else
-              echo "Warning: Skipping invalid line format (expected 'name:pattern'): $line"
+              echo "Warning: Skipping invalid line format (expected 'name:pattern'): $line" >&2
             fi
           done <<< "$INPUT_PACKAGES"
 
@@ -137,7 +137,7 @@ runs:
 
         else
           # Single mode (backwards compatible)
-          echo "Running in single mode..."
+          echo "Running in single mode..." >&2
           PACKAGE_NAME="$INPUT_PACKAGE_NAME"
           PATTERN="$INPUT_SOURCE_PATTERN"
 
