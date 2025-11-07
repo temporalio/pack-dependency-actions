@@ -27,9 +27,22 @@ runs:
         PACK_FILES="$INPUT_PACK_FILES"
         PKG_MANAGER="$INPUT_PKG_MANAGER"
 
-        # Convert comma-separated strings to arrays
+        # Convert input to arrays (supports both comma-separated and newline-separated)
+        # Replace newlines with commas, then split by comma
+        PACKAGE_NAMES=$(echo "$PACKAGE_NAMES" | tr '\n' ',')
+        PACK_FILES=$(echo "$PACK_FILES" | tr '\n' ',')
+
         IFS=',' read -ra PACKAGES <<< "$PACKAGE_NAMES"
         IFS=',' read -ra PACKS <<< "$PACK_FILES"
+
+        # Filter out empty elements
+        PACKAGES=("${PACKAGES[@]// /}")
+        PACKAGES=("${PACKAGES[@]/#/}")
+        PACKAGES=($(printf '%s\n' "${PACKAGES[@]}" | grep -v '^$'))
+
+        PACKS=("${PACKS[@]// /}")
+        PACKS=("${PACKS[@]/#/}")
+        PACKS=($(printf '%s\n' "${PACKS[@]}" | grep -v '^$'))
 
         # Verify same number of packages and pack files
         if [ ${#PACKAGES[@]} -ne ${#PACKS[@]} ]; then
