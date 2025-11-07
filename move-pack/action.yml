@@ -11,15 +11,18 @@ inputs:
     required: false
     default: './packs'
   package-name:
-    description: 'Package name for renaming'
+    description: 'Package name for renaming (single mode only)'
     required: false
   sha:
     description: 'SHA for file naming'
     required: false
   source-pattern:
-    description: 'Pattern to find packed files (e.g., *.tgz)'
+    description: 'Pattern to find packed files (single mode: e.g., *.tgz)'
     required: false
     default: '*.tgz'
+  packages:
+    description: 'Multiline list of packages to move in format "name:pattern" (batch mode). Example: "registry:*registry*.tgz"'
+    required: false
 
 outputs:
   package-file:
@@ -38,61 +41,106 @@ runs:
         INPUT_PACKAGE_NAME: ${{ inputs.package-name }}
         INPUT_SHA: ${{ inputs.sha }}
         INPUT_SOURCE_PATTERN: ${{ inputs.source-pattern }}
+        INPUT_PACKAGES: ${{ inputs.packages }}
       run: |
         SOURCE_PATH="$INPUT_SOURCE_PATH"
         ROOT_PACK_DEST="$INPUT_PACK_DEST"
-        PACKAGE_NAME="$INPUT_PACKAGE_NAME"
         SHA="$INPUT_SHA"
-        PATTERN="$INPUT_SOURCE_PATTERN"
-
-        # Store current directory
         ROOT_DIR=$(pwd)
 
         # Create root pack destination
         mkdir -p "$ROOT_PACK_DEST"
 
-        # Clean up old versions of this specific package if package name provided
-        if [ -n "$PACKAGE_NAME" ]; then
-          CLEAN_NAME="${PACKAGE_NAME//[@\/]/-}"
-          CLEAN_NAME="${CLEAN_NAME#-}"
-          echo "Cleaning up old versions of $CLEAN_NAME..."
-          rm -f "$ROOT_PACK_DEST/$CLEAN_NAME"-*.tgz 2>/dev/null || true
-        fi
+        # Function to move a single package
+        move_package() {
+          local PACKAGE_NAME="$1"
+          local PATTERN="$2"
 
-        cd "$SOURCE_PATH"
-
-        # Find the packed file
-        PACKED_FILE=$(find . -name "$PATTERN" -type f | head -1)
-
-        if [ -z "$PACKED_FILE" ]; then
-          echo "Error: No packed file found matching pattern: $PATTERN"
-          exit 1
-        fi
-
-        echo "Found packed file: $PACKED_FILE"
-
-        # Get the base filename
-        PACKED_FILENAME=$(basename "$PACKED_FILE")
-
-        # Construct new filename with SHA
-        if [ -n "$SHA" ]; then
+          # Clean up old versions of this specific package if package name provided
           if [ -n "$PACKAGE_NAME" ]; then
-            # Use provided package name
             CLEAN_NAME="${PACKAGE_NAME//[@\/]/-}"
             CLEAN_NAME="${CLEAN_NAME#-}"
-            NEW_NAME="${CLEAN_NAME}-${SHA:0:8}.tgz"
-          else
-            # Extract package name from filename and add SHA
-            BASE_NAME="${PACKED_FILENAME%.tgz}"
-            NEW_NAME="${BASE_NAME}-${SHA:0:8}.tgz"
+            echo "Cleaning up old versions of $CLEAN_NAME..."
+            rm -f "$ROOT_PACK_DEST/$CLEAN_NAME"-*.tgz 2>/dev/null || true
           fi
+
+          cd "$SOURCE_PATH"
+
+          # Find the packed file
+          PACKED_FILE=$(find . -name "$PATTERN" -type f | head -1)
+
+          if [ -z "$PACKED_FILE" ]; then
+            echo "Error: No packed file found matching pattern: $PATTERN"
+            return 1
+          fi
+
+          echo "Found packed file: $PACKED_FILE"
+
+          # Get the base filename
+          PACKED_FILENAME=$(basename "$PACKED_FILE")
+
+          # Construct new filename with SHA
+          if [ -n "$SHA" ]; then
+            if [ -n "$PACKAGE_NAME" ]; then
+              # Use provided package name
+              CLEAN_NAME="${PACKAGE_NAME//[@\/]/-}"
+              CLEAN_NAME="${CLEAN_NAME#-}"
+              NEW_NAME="${CLEAN_NAME}-${SHA:0:8}.tgz"
+            else
+              # Extract package name from filename and add SHA
+              BASE_NAME="${PACKED_FILENAME%.tgz}"
+              NEW_NAME="${BASE_NAME}-${SHA:0:8}.tgz"
+            fi
+          else
+            NEW_NAME="$PACKED_FILENAME"
+          fi
+
+          # Move the packed file to root repo's packs directory
+          FINAL_PATH="$ROOT_DIR/$ROOT_PACK_DEST/$NEW_NAME"
+          mv "$PACKED_FILE" "$FINAL_PATH"
+
+          echo "Moved to: $FINAL_PATH"
+
+          # Return to root directory
+          cd "$ROOT_DIR"
+
+          echo "$ROOT_PACK_DEST/$NEW_NAME"
+        }
+
+        # Check if batch mode (packages input provided)
+        if [ -n "$INPUT_PACKAGES" ]; then
+          echo "Running in batch mode..."
+          PACKAGE_FILES=()
+
+          # Process each package line
+          while IFS= read -r line; do
+            # Skip empty lines
+            [ -z "$line" ] && continue
+
+            # Parse name:pattern format
+            if [[ "$line" =~ ^([^:]+):(.+)$ ]]; then
+              PKG_NAME="${BASH_REMATCH[1]}"
+              PKG_PATTERN="${BASH_REMATCH[2]}"
+
+              echo "Processing package: $PKG_NAME with pattern: $PKG_PATTERN"
+              MOVED_FILE=$(move_package "$PKG_NAME" "$PKG_PATTERN")
+              PACKAGE_FILES+=("$MOVED_FILE")
+            else
+              echo "Warning: Skipping invalid line format (expected 'name:pattern'): $line"
+            fi
+          done <<< "$INPUT_PACKAGES"
+
+          # Output first package file for backwards compatibility
+          if [ ${#PACKAGE_FILES[@]} -gt 0 ]; then
+            echo "package-file=${PACKAGE_FILES[0]}" >> $GITHUB_OUTPUT
+          fi
+
         else
-          NEW_NAME="$PACKED_FILENAME"
+          # Single mode (backwards compatible)
+          echo "Running in single mode..."
+          PACKAGE_NAME="$INPUT_PACKAGE_NAME"
+          PATTERN="$INPUT_SOURCE_PATTERN"
+
+          MOVED_FILE=$(move_package "$PACKAGE_NAME" "$PATTERN")
+          echo "package-file=$MOVED_FILE" >> $GITHUB_OUTPUT
         fi
-
-        # Move the packed file to root repo's packs directory
-        FINAL_PATH="$ROOT_DIR/$ROOT_PACK_DEST/$NEW_NAME"
-        mv "$PACKED_FILE" "$FINAL_PATH"
-
-        echo "Moved to: $FINAL_PATH"
-        echo "package-file=$ROOT_PACK_DEST/$NEW_NAME" >> $GITHUB_OUTPUT

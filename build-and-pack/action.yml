@@ -7,10 +7,16 @@ inputs:
     required: false
     default: 'source'
   build-command:
-    description: 'Build command before packing'
+    description: 'Build command before packing (single mode only)'
     required: false
   pack-command:
-    description: 'Custom pack command'
+    description: 'Custom pack command (single mode only)'
+    required: false
+  build-commands:
+    description: 'Multiline list of build commands to run sequentially (batch mode)'
+    required: false
+  pack-commands:
+    description: 'Multiline list of pack commands to run sequentially (batch mode)'
     required: false
   remove-prepare:
     description: 'Remove prepare script'
@@ -44,39 +50,96 @@ runs:
         pnpm install --frozen-lockfile --ignore-scripts
 
     - name: Build package
-      if: inputs.build-command != ''
       shell: bash
+      env:
+        BUILD_COMMAND: ${{ inputs.build-command }}
+        BUILD_COMMANDS: ${{ inputs.build-commands }}
       run: |
         cd "${{ inputs.source-path }}"
-        echo "Running: ${{ inputs.build-command }}"
-        eval "${{ inputs.build-command }}"
+
+        # Check if batch mode (build-commands provided)
+        if [ -n "$BUILD_COMMANDS" ]; then
+          echo "Running build commands in batch mode..."
+          while IFS= read -r cmd; do
+            # Skip empty lines
+            [ -z "$cmd" ] && continue
+            echo "Running: $cmd"
+            eval "$cmd"
+          done <<< "$BUILD_COMMANDS"
+        elif [ -n "$BUILD_COMMAND" ]; then
+          # Single mode (backwards compatible)
+          echo "Running: $BUILD_COMMAND"
+          eval "$BUILD_COMMAND"
+        else
+          echo "No build commands to run"
+        fi
 
     - name: Pack dependency
       id: pack
       shell: bash
+      env:
+        PACK_COMMAND: ${{ inputs.pack-command }}
+        PACK_COMMANDS: ${{ inputs.pack-commands }}
       run: |
         SOURCE_PATH="${{ inputs.source-path }}"
-
         cd "$SOURCE_PATH"
 
-        # Run pack command
-        if [ -n "${{ inputs.pack-command }}" ]; then
-          echo "Running: ${{ inputs.pack-command }}"
-          eval "${{ inputs.pack-command }}"
+        PACKAGE_FILES=()
+
+        # Check if batch mode (pack-commands provided)
+        if [ -n "$PACK_COMMANDS" ]; then
+          echo "Running pack commands in batch mode..."
+          while IFS= read -r cmd; do
+            # Skip empty lines
+            [ -z "$cmd" ] && continue
+
+            echo "Running: $cmd"
+            eval "$cmd"
+
+            # Find the most recently created .tgz file
+            PACKED_FILE=$(find . -name "*.tgz" -type f -mmin -1 | head -1)
+
+            if [ -z "$PACKED_FILE" ]; then
+              echo "Error: No pack file created for command: $cmd"
+              exit 1
+            fi
+
+            echo "Found packed file: $PACKED_FILE"
+            PACKAGE_FILES+=("$PACKED_FILE")
+          done <<< "$PACK_COMMANDS"
+
+          # Output first package file for backwards compatibility
+          if [ ${#PACKAGE_FILES[@]} -gt 0 ]; then
+            echo "package-file=${PACKAGE_FILES[0]}" >> $GITHUB_OUTPUT
+          fi
+
+        elif [ -n "$PACK_COMMAND" ]; then
+          # Single mode (backwards compatible)
+          echo "Running: $PACK_COMMAND"
+          eval "$PACK_COMMAND"
 
           # The pack command should have created a .tgz file
-          # Find it (could be in current dir or a subdirectory)
           PACKED_FILE=$(find . -name "*.tgz" -type f -mmin -1 | head -1)
+
+          if [ -z "$PACKED_FILE" ]; then
+            echo "Error: No pack file created"
+            exit 1
+          fi
+
+          echo "Found packed file: $PACKED_FILE"
+          echo "package-file=$PACKED_FILE" >> $GITHUB_OUTPUT
+
         else
           # Default: use pnpm pack to current directory
+          echo "Running default: pnpm pack"
           pnpm pack
           PACKED_FILE=$(ls -t *.tgz | head -1)
-        fi
 
-        if [ -z "$PACKED_FILE" ]; then
-          echo "Error: No pack file created"
-          exit 1
-        fi
+          if [ -z "$PACKED_FILE" ]; then
+            echo "Error: No pack file created"
+            exit 1
+          fi
 
-        echo "Found packed file: $PACKED_FILE"
-        echo "package-file=$PACKED_FILE" >> $GITHUB_OUTPUT
+          echo "Found packed file: $PACKED_FILE"
+          echo "package-file=$PACKED_FILE" >> $GITHUB_OUTPUT
+        fi
