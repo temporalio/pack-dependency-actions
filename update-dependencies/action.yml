@@ -54,8 +54,11 @@ runs:
           mv package.json.tmp package.json
         done
 
-        # Install new packed versions
+        # Install new packed versions all at once to resolve interdependencies
         echo "Installing new packed versions..."
+
+        # Build array of pack files
+        INSTALL_ARGS=()
         for i in "${!PACKAGES[@]}"; do
           package="${PACKAGES[$i]}"
           pack_file="${PACKS[$i]}"
@@ -64,25 +67,27 @@ runs:
           package=$(echo "$package" | xargs)
           pack_file=$(echo "$pack_file" | xargs)
 
-          echo "  Installing: $package from $pack_file"
-
-          # Install using appropriate package manager
-          case "$PKG_MANAGER" in
-            npm)
-              npm install "$pack_file"
-              ;;
-            pnpm)
-              pnpm add "$pack_file"
-              ;;
-            yarn)
-              yarn add "$pack_file"
-              ;;
-            *)
-              echo "Error: Unknown package manager: $PKG_MANAGER"
-              exit 1
-              ;;
-          esac
+          echo "  Will install: $package from $pack_file"
+          INSTALL_ARGS+=("$pack_file")
         done
+
+        # Install all packs in a single command to handle interdependencies
+        echo "Running install command with all packs..."
+        case "$PKG_MANAGER" in
+          npm)
+            npm install "${INSTALL_ARGS[@]}"
+            ;;
+          pnpm)
+            pnpm add "${INSTALL_ARGS[@]}"
+            ;;
+          yarn)
+            yarn add "${INSTALL_ARGS[@]}"
+            ;;
+          *)
+            echo "Error: Unknown package manager: $PKG_MANAGER"
+            exit 1
+            ;;
+        esac
 
         # Final install to ensure all dependencies are resolved
         echo "Running final install to resolve all dependencies..."
