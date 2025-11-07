@@ -62,7 +62,7 @@ runs:
             npm install
             ;;
           pnpm)
-            pnpm install
+            pnpm install --no-frozen-lockfile
             ;;
           yarn)
             yarn install
