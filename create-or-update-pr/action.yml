@@ -105,11 +105,29 @@ runs:
         if [ "$STASHED" = "true" ]; then
           echo "Restoring stashed changes"
           if ! git stash pop; then
-            echo "Conflicts detected during stash pop, resolving by accepting stashed changes"
-            # Accept all incoming changes from the stash (the new files we want)
-            git checkout --theirs -- .
-            git add .
-            git stash drop
+            echo "Conflicts detected during stash pop, resolving by keeping stashed changes"
+
+            # Handle "deleted by them" conflicts - files that exist on branch but were
+            # removed/replaced in the stash (e.g., renamed pack files)
+            git status | grep "deleted by them:" | sed 's/.*deleted by them:[[:space:]]*//' | while read -r file; do
+              if [ -n "$file" ]; then
+                echo "Removing file deleted in stash: $file"
+                git rm -f "$file" 2>/dev/null || rm -f "$file"
+              fi
+            done
+
+            # For regular conflicts, try to use stash version where available
+            git diff --name-only --diff-filter=U 2>/dev/null | while read -r file; do
+              if [ -n "$file" ]; then
+                git checkout --theirs -- "$file" 2>/dev/null || true
+              fi
+            done
+
+            # Add all remaining changes (including untracked files from stash)
+            git add -A
+
+            # Drop the stash since we've manually resolved it
+            git stash drop || true
           fi
         fi
 
