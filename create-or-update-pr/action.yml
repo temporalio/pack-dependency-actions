@@ -109,19 +109,24 @@ runs:
 
             # Handle "deleted by them" conflicts - files that exist on branch but were
             # removed/replaced in the stash (e.g., renamed pack files)
-            git status | grep "deleted by them:" | sed 's/.*deleted by them:[[:space:]]*//' | while read -r file; do
+            # Use --porcelain for reliable parsing; DU = deleted by them
+            while IFS= read -r line; do
+              file="${line:3}"
               if [ -n "$file" ]; then
                 echo "Removing file deleted in stash: $file"
                 git rm -f "$file" 2>/dev/null || rm -f "$file"
               fi
-            done
+            done < <(git status --porcelain | grep "^DU " || true)
 
-            # For regular conflicts, try to use stash version where available
-            git diff --name-only --diff-filter=U 2>/dev/null | while read -r file; do
+            # Handle "both modified" conflicts - use the stash version (theirs)
+            # UU = both modified
+            while IFS= read -r line; do
+              file="${line:3}"
               if [ -n "$file" ]; then
+                echo "Resolving conflict with stash version: $file"
                 git checkout --theirs -- "$file" 2>/dev/null || true
               fi
-            done
+            done < <(git status --porcelain | grep "^UU " || true)
 
             # Add all remaining changes (including untracked files from stash)
             git add -A
