@@ -1,0 +1,41 @@
+name: 'Checkout PR Branch'
+description: 'Checkout an existing PR branch or create a new one from the base branch'
+
+inputs:
+  branch:
+    description: 'The PR branch name to checkout or create'
+    required: true
+  base:
+    description: 'Base branch to create from if the PR branch does not exist'
+    required: false
+    default: 'main'
+
+outputs:
+  branch-exists:
+    description: 'Whether the branch existed on remote before this action ran'
+    value: ${{ steps.checkout.outputs.branch_exists }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout or create branch
+      id: checkout
+      shell: bash
+      env:
+        BRANCH: ${{ inputs.branch }}
+        BASE: ${{ inputs.base }}
+      run: |
+        git fetch origin
+
+        if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+          echo "Branch $BRANCH exists on remote, checking out"
+          git checkout "$BRANCH"
+          git pull origin "$BRANCH"
+          echo "branch_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "Branch $BRANCH does not exist, creating from $BASE"
+          git checkout -b "$BRANCH"
+          echo "branch_exists=false" >> $GITHUB_OUTPUT
+        fi
+
+        echo "Now on branch: $(git branch --show-current)"
