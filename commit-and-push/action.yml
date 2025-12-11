@@ -1,0 +1,56 @@
+name: 'Commit and Push'
+description: 'Stage all changes (including deletions), commit, and push to the current branch'
+
+inputs:
+  commit-message:
+    description: 'The commit message'
+    required: true
+  committer-name:
+    description: 'The name to use for the git commit'
+    required: true
+  committer-email:
+    description: 'The email to use for the git commit'
+    required: true
+
+outputs:
+  has-changes:
+    description: 'Whether there were changes to commit (true/false)'
+    value: ${{ steps.commit.outputs.has_changes }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure git
+      shell: bash
+      env:
+        COMMITTER_NAME: ${{ inputs.committer-name }}
+        COMMITTER_EMAIL: ${{ inputs.committer-email }}
+      run: |
+        git config user.name "$COMMITTER_NAME"
+        git config user.email "$COMMITTER_EMAIL"
+
+    - name: Commit and push
+      id: commit
+      shell: bash
+      env:
+        COMMIT_MESSAGE: ${{ inputs.commit-message }}
+      run: |
+        # Stage all changes including deletions
+        git add -A
+
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        # Show what we're committing
+        echo "Changes to commit:"
+        git diff --staged --stat
+
+        # Commit and push
+        git commit -m "$COMMIT_MESSAGE"
+        git push origin HEAD
+
+        echo "has_changes=true" >> $GITHUB_OUTPUT
