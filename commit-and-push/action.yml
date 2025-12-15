@@ -11,6 +11,9 @@ inputs:
   committer-email:
     description: 'The email to use for the git commit'
     required: true
+  token:
+    description: 'GitHub token for authentication. Use a GitHub App token to trigger workflows on push.'
+    required: false
 
 outputs:
   has-changes:
@@ -25,9 +28,13 @@ runs:
       env:
         COMMITTER_NAME: ${{ inputs.committer-name }}
         COMMITTER_EMAIL: ${{ inputs.committer-email }}
+        TOKEN: ${{ inputs.token }}
       run: |
         git config user.name "$COMMITTER_NAME"
         git config user.email "$COMMITTER_EMAIL"
+        if [ -n "$TOKEN" ]; then
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}"
+        fi
 
     - name: Commit and push
       id: commit
